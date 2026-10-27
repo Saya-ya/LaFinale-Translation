@@ -3,26 +3,87 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LaFinale Translation — Vista preliminar</title>
-  <style>
-    :root { color-scheme: dark; font: 16px/1.5 system-ui, sans-serif; }
-    body { background: #161b22; color: #f0f4fa; max-width: 48rem; margin: 3rem auto; padding: 0 1rem; }
-    textarea { display: block; box-sizing: border-box; width: 100%; min-height: 8rem; padding: .7rem; background: #222b38; color: inherit; border: 1px solid #71849c; border-radius: .5rem; }
-    button { margin-top: .8rem; padding: .5rem 1rem; font: inherit; cursor: pointer; }
-    output { display: block; padding: .9rem; margin-top: 1rem; background: #263549; border-radius: .5rem; }
-    a { color: #9ccefc; }
-  </style>
+  <meta name="theme-color" content="#f8f8f6">
+  <title>LaFinale — Traducción local</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
 </head>
 <body>
-  <h1>LaFinale Translation</h1>
-  <p>Vista preliminar de capacidad. Todavía no importa archivos del juego ni guarda traducciones.</p>
-  <form method="post" action="/">
-    <label for="text">Texto traducido</label>
-    <textarea id="text" name="text" maxlength="8192" required>{{TEXT}}</textarea>
-    <button type="submit">Comprobar bytes CP932</button>
-  </form>
-  <output aria-live="polite">{{RESULT}}</output>
-  <p>Se admiten espacios ASCII U+0020; no se admiten espacios japoneses U+3000. El límite de 48 bytes es provisional; el slot ocupa 53 bytes incluido NUL. Ningún resultado garantiza que la frase quepa visualmente en el recuadro.</p>
-  <p><a href="/api/status">Estado de carpetas y entradas</a> · <a href="/health">Comprobar servidor</a></p>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="LaFinale · Inicio"><span class="brand-mark" aria-hidden="true">L<span>F</span></span><span>LaFinale <small>Translation</small></span></a>
+      <nav class="nav" aria-label="Navegación principal">
+        <a href="/" data-nav="/">Inicio</a>
+        <a href="/importar" data-nav="/importar">Importar</a>
+        <a href="/parchear" data-nav="/parchear">Parchear</a>
+      </nav>
+      <span class="local-label"><span class="live-dot" aria-hidden="true"></span> En este equipo</span>
+    </div>
+  </header>
+
+  <main class="container">
+    <noscript><p class="notice">Activa JavaScript para consultar el estado local y usar las vistas de esta aplicación.</p></noscript>
+
+    <section id="home" data-view="/" aria-labelledby="home-title">
+      <div class="hero">
+        <span class="eyebrow">Proyecto de traducción · PC</span>
+        <h1 id="home-title">Tu espacio de trabajo,<br><em>en orden.</em></h1>
+        <p>Prepara los archivos de <i>Solfège ~La finale~</i>, revisa lo que hay disponible y avanza sin modificar tu instalación.</p>
+        <div class="actions"><a class="button primary" href="/importar">Ir a importar <span aria-hidden="true">↗</span></a><a class="button secondary" href="/parchear">Ver parches</a></div>
+      </div>
+      <div class="section-heading"><div><span class="eyebrow">Resumen</span><h2>Estado del proyecto</h2></div><button type="button" class="text-button" data-refresh>Actualizar estado <span aria-hidden="true">↻</span></button></div>
+      <div class="overview">
+        <article class="panel"><div class="panel-title"><span class="step-icon">01</span><h3>Archivos de origen</h3></div>
+          <div class="file-row"><div><strong>Script.pak</strong><small>originales/Script.pak</small></div><span class="badge" id="pak-input">Comprobando…</span></div>
+          <div class="file-row"><div><strong>SolfegeLF.exe</strong><small>originales/SolfegeLF.exe</small></div><span class="badge" id="exe-input">Comprobando…</span></div>
+          <p class="subtle">La presencia no verifica formato ni compatibilidad.</p>
+        </article>
+        <article class="panel"><div class="panel-title"><span class="step-icon">02</span><h3>Traducción y salidas</h3></div>
+          <div class="file-row"><div><strong>JSON de trabajo</strong><small>work/translations/</small></div><span class="badge" id="json-count">Comprobando…</span></div>
+          <div class="file-row"><div><strong>EXE diagnóstico</strong><small>output/</small></div><span class="badge" id="exe-output">Comprobando…</span></div>
+          <div class="file-row"><div><strong>PAK de salida</strong><small>output/Script.pak</small></div><span class="badge" id="pak-output">Comprobando…</span></div>
+          <p class="subtle">Los JSON y salidas encontrados no se validan desde este resumen.</p>
+        </article>
+      </div>
+      <div class="language-line"><div><span class="eyebrow">Idiomas</span><p>Japonés <span aria-hidden="true">→</span> Español <small>Único destino previsto por ahora</small></p></div><span class="language-code">JA / ES</span></div>
+    </section>
+
+    <section id="import" data-view="/importar" aria-labelledby="import-title" hidden>
+      <div class="page-intro"><span class="eyebrow">01 / Preparación</span><h1 id="import-title">Importar diálogos</h1><p>La importación extraerá las cadenas de los scripts del PAK original a JSON de trabajo, conservando índices y datos del juego.</p></div>
+      <div class="two-column">
+        <article class="panel featured"><div class="panel-title"><span class="step-icon">01</span><h2>Archivo necesario</h2></div>
+          <p>Coloca tu <code>Script.pak</code> original en <code>originales/Script.pak</code>.</p>
+          <div class="file-row"><div><strong>Script.pak</strong><small>Estado local</small></div><span class="badge" id="pak-import">Comprobando…</span></div>
+          <button type="button" class="button primary" disabled>Iniciar importación</button>
+          <p class="subtle">Próximamente · todavía no hay extractor HyPack/SF03 en Rust. Este botón no ejecuta nada.</p>
+        </article>
+        <aside class="panel guidance"><span class="eyebrow">Destino previsto</span><h2>JSON para traducir</h2><p>Los diálogos extraídos irán a <code>work/translations/</code>. Esa carpeta es local y está excluida de Git.</p><p>Se comprobarán índices, codificación CP932 y contenido al implementar la importación; detectar un archivo no significa que sea válido.</p></aside>
+      </div>
+    </section>
+
+    <section id="patch" data-view="/parchear" aria-labelledby="patch-title" hidden>
+      <div class="page-intro"><span class="eyebrow">02 / Construcción</span><h1 id="patch-title">Aplicar parches</h1><p>El EXE y el PAK se construyen por separado. Las salidas van a <code>output/</code>; nada se instala automáticamente.</p></div>
+      <div class="overview">
+        <article class="panel featured"><div class="panel-title"><span class="step-icon">EXE</span><h2>Ejecutable</h2></div>
+          <p>Conserva espacios ASCII y permite hasta 52 bytes CP932 por slot. Solo acepta la versión NoDVD verificada.</p>
+          <div class="file-row"><div><strong>Entrada</strong><small>originales/SolfegeLF.exe</small></div><span class="badge" id="exe-patch-input">Comprobando…</span></div>
+          <div class="file-row"><div><strong>Salida diagnóstica</strong><small>output/SolfegeLF_DIAGNOSTIC.exe</small></div><span class="badge" id="exe-patch-output">Comprobando…</span></div>
+          <button type="button" class="button primary" id="build-exe" disabled>Generar EXE diagnóstico</button>
+          <p class="subtle">No mide el ancho visual ni resuelve la paginación. No sobrescribe archivos existentes.</p>
+          <p id="build-message" class="result" role="status" aria-live="polite" hidden></p>
+        </article>
+        <article class="panel"><div class="panel-title"><span class="step-icon">PAK</span><h2>Script.pak</h2></div>
+          <p>Tomará las traducciones en JSON, revisará los límites CP932 y generará un PAK separado tras verificar todos los scripts.</p>
+          <div class="file-row"><div><strong>Entrada</strong><small>originales/Script.pak</small></div><span class="badge" id="pak-patch-input">Comprobando…</span></div>
+          <div class="file-row"><div><strong>JSON encontrados</strong><small>work/translations/</small></div><span class="badge" id="json-patch-count">Comprobando…</span></div>
+          <button type="button" class="button secondary" disabled>Generar Script.pak</button>
+          <p class="subtle">Próximamente · faltan la extracción y reempaquetado en Rust, además de las pruebas de paginación y menú.</p>
+        </article>
+      </div>
+    </section>
+
+    <p class="notice" id="status-error" role="alert" hidden>No se pudo consultar la API local. Comprueba que el servidor siga activo y actualiza la página.</p>
+  </main>
+  <footer class="footer container"><span>LaFinale Translation <span aria-hidden="true">·</span> prototipo local</span><span>Sin archivos del juego en el repositorio</span></footer>
 </body>
 </html>

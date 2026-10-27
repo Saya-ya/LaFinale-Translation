@@ -1,24 +1,20 @@
 use axum::{
-    extract::{Form, State},
-    http::{HeaderMap, StatusCode},
+    extract::State,
+    http::{header, HeaderMap, StatusCode},
     response::Html,
     routing::get,
     Json, Router,
 };
 use lafinale_core::{
-    check_capacity,
     exe_patch::{self, PatchError},
     workspace::{BuildError, Workspace, DIRECTORIES},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::{net::SocketAddr, path::PathBuf};
 
 const PAGE: &str = include_str!("page.html");
-
-#[derive(Deserialize)]
-struct PreviewForm {
-    text: String,
-}
+const CSS: &str = include_str!("style.css");
+const JS: &str = include_str!("app.js");
 
 #[derive(Serialize)]
 struct DirectoryStatus {
@@ -37,6 +33,14 @@ struct InputStatus {
 struct ApiStatus {
     directories: Vec<DirectoryStatus>,
     inputs: InputStatus,
+    workspace: WorkspaceOverview,
+}
+
+#[derive(Serialize)]
+struct WorkspaceOverview {
+    translation_json_count: Option<usize>,
+    diagnostic_exe_present: bool,
+    output_pak_present: bool,
 }
 
 #[derive(Serialize)]
@@ -61,7 +65,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(std::env::current_dir()?);
     let workspace = Workspace::initialize(root)?;
     let app = Router::new()
-        .route("/", get(index).post(preview))
+        .route("/", get(index))
+        .route("/importar", get(index))
+        .route("/parchear", get(index))
+        .route("/assets/app.css", get(styles))
+        .route("/assets/app.js", get(script))
         .route("/health", get(|| async { "ok" }))
         .route("/api/health", get(|| async { Json("ok") }))
         .route("/api/status", get(api_status))
@@ -134,58 +142,27 @@ async fn api_status(State(workspace): State<Workspace>) -> Json<ApiStatus> {
             exe_present: status.has_exe,
             validated: false, // Detection is not a PE/HyPack signature or hash check.
         },
+        workspace: WorkspaceOverview {
+            translation_json_count: status.translation_json_count,
+            diagnostic_exe_present: status.diagnostic_exe_present,
+            output_pak_present: status.output_pak_present,
+        },
     })
 }
 
-async fn index() -> Html<String> {
-    render("", "Pega una frase para comprobar su capacidad CP932.")
+async fn index() -> Html<&'static str> {
+    Html(PAGE)
 }
 
-async fn preview(Form(form): Form<PreviewForm>) -> Html<String> {
-    let result = match check_capacity(&form.text) {
-        Ok(capacity) => format!(
-            "{} bytes CP932; tramo de prueba: {}/{}; slot físico: {}/{}. {}",
-            capacity.encoded_bytes,
-            capacity.encoded_bytes,
-            capacity.preview_limit_bytes,
-            capacity.encoded_bytes,
-            capacity.slot_payload_bytes,
-            if capacity.fits_preview() {
-                "Cabe en un tramo de prueba; aún requiere revisión visual."
-            } else if capacity.fits_slot() {
-                "Supera el margen de 48 bytes; puede necesitar un salto."
-            } else {
-                "Excede un slot: NO se debe emitir como una sola línea."
-            }
-        ),
-        Err(error) => error.to_string(),
-    };
-    render(&form.text, &result)
+async fn styles() -> ([(header::HeaderName, &'static str); 1], &'static str) {
+    ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], CSS)
 }
 
-fn render(input: &str, result: &str) -> Html<String> {
-    Html(
-        PAGE.replace("{{TEXT}}", &escape_html(input))
-            .replace("{{RESULT}}", &escape_html(result)),
+async fn script() -> ([(header::HeaderName, &'static str); 1], &'static str) {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        JS,
     )
-}
-
-fn escape_html(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    for c in s.chars() {
-        result.push_str(match c {
-            '&' => "&amp;",
-            '<' => "&lt;",
-            '>' => "&gt;",
-            '"' => "&quot;",
-            '\'' => "&#39;",
-            _ => {
-                result.push(c);
-                continue;
-            }
-        });
-    }
-    result
 }
 
 #[cfg(test)]
@@ -193,10 +170,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pasted_html_is_escaped() {
-        let page = render("<script>alert('x')</script>", "<unsafe>");
-        assert!(page.0.contains("&lt;script&gt;"));
-        assert!(!page.0.contains("<script>"));
-        assert!(page.0.contains("&lt;unsafe&gt;"));
+    fn all_views_and_assets_are_embedded() {
+        assert!(PAGE.contains("href=\"/importar\""));
+        assert!(PAGE.contains("href=\"/parchear\""));
+        assert!(PAGE.contains("/assets/app.js"));
+        assert!(JS.contains("/api/exe/build"));
     }
 }

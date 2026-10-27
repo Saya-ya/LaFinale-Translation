@@ -35,8 +35,9 @@ reversible. Los espacios deben ser **U+0020**, nunca U+3000.
 `lafinale-core` concentra reglas CP932 y el port del parche PE de prueba;
 SF03, HyPack y layout siguen pendientes. `lafinale-web` expone una interfaz local Axum en
 `127.0.0.1`, nunca abierta por defecto a otras máquinas. El formulario
-actual previsualiza capacidad y permite crear un EXE diagnóstico en `output/`,
-pero no persiste traducciones ni parchea la instalación.
+actual muestra tres vistas y permite crear un EXE diagnóstico en `output/`,
+pero no extrae JSON, genera PAK ni parchea la instalación. La importación y
+el PAK aparecen desactivados mientras se portan sus formatos.
 
 Los prototipos Python anteriores son referencia para portar el algoritmo
 correcto, **no** una dependencia de la aplicación final. Cada módulo Rust

@@ -101,6 +101,9 @@ pub struct WorkspaceStatus {
     pub directories: [bool; 4],
     pub has_script_pak: bool,
     pub has_exe: bool,
+    pub translation_json_count: Option<usize>,
+    pub diagnostic_exe_present: bool,
+    pub output_pak_present: bool,
 }
 
 impl Workspace {
@@ -135,6 +138,9 @@ impl Workspace {
             directories: DIRECTORIES.map(|relative| is_directory(&self.root.join(relative))),
             has_script_pak: is_regular_file(&self.root.join(ORIGINALS).join("Script.pak")),
             has_exe: is_regular_file(&self.root.join(ORIGINALS).join("SolfegeLF.exe")),
+            translation_json_count: count_json_files(&self.root.join(TRANSLATIONS)),
+            diagnostic_exe_present: is_regular_file(&self.root.join(OUTPUT).join(DIAGNOSTIC_EXE)),
+            output_pak_present: is_regular_file(&self.root.join(OUTPUT).join("Script.pak")),
         }
     }
 
@@ -185,6 +191,22 @@ fn is_regular_file(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
 }
 
+fn count_json_files(path: &Path) -> Option<usize> {
+    if !is_directory(path) {
+        return None;
+    }
+    let mut count = 0;
+    for entry in fs::read_dir(path).ok()? {
+        let entry = entry.ok()?;
+        if entry.file_type().ok()?.is_file()
+            && entry.path().extension() == Some(std::ffi::OsStr::new("json"))
+        {
+            count += 1;
+        }
+    }
+    Some(count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,6 +218,7 @@ mod tests {
         assert_eq!(workspace.status().directories, [true; 4]);
         assert!(!workspace.status().has_script_pak);
         assert!(!workspace.status().has_exe);
+        assert_eq!(workspace.status().translation_json_count, Some(0));
 
         let original = dir.path().join(ORIGINALS).join("Script.pak");
         fs::write(&original, b"untouched").unwrap();
@@ -213,6 +236,18 @@ mod tests {
         let error = Workspace::initialize(dir.path()).unwrap_err();
         assert!(matches!(error, WorkspaceError::NotDirectory(_)));
         assert_eq!(fs::read(dir.path().join(ORIGINALS)).unwrap(), b"user file");
+    }
+
+    #[test]
+    fn counts_json_without_claiming_translations_are_valid() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::initialize(dir.path()).unwrap();
+        fs::write(dir.path().join(TRANSLATIONS).join("a.json"), b"not json").unwrap();
+        fs::write(dir.path().join(TRANSLATIONS).join("b.txt"), b"other").unwrap();
+        fs::write(dir.path().join(OUTPUT).join("Script.pak"), b"not pak").unwrap();
+        assert_eq!(workspace.status().translation_json_count, Some(1));
+        assert!(workspace.status().output_pak_present);
+        assert!(!workspace.status().diagnostic_exe_present);
     }
 
     #[cfg(unix)]
