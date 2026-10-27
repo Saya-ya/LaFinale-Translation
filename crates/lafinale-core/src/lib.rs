@@ -2,6 +2,7 @@
 
 use encoding_rs::SHIFT_JIS;
 
+pub mod exe_patch;
 pub mod workspace;
 
 /// One engine slot contains at most 52 CP932 bytes plus its NUL terminator.

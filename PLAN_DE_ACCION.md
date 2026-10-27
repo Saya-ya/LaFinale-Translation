@@ -1,7 +1,8 @@
 # Plan de acción: parcheador de Script.pak y SolfegeLF.exe
 
-**Estado:** repositorio Rust/web iniciado; solo el validador de texto está
-implementado. Ningún generador de producción ni editor/instalador implementado.
+**Estado:** repositorio Rust/web iniciado; validador de texto y generador
+**diagnóstico** del EXE implementados. Ningún generador de PAK de producción
+ni editor/instalador implementado.
 **Objetivo:** convertir los JSON de traducción ya existentes en un `Script.pak`
 con texto español y saltos correctos, producir un `SolfegeLF.exe` compatible
 sin distribuir archivos originales del juego, y ofrecer una instalación
@@ -31,10 +32,11 @@ reversible. Los espacios deben ser **U+0020**, nunca U+3000.
 ## 2. Arquitectura acordada: web local en Rust
 
 **Aplicación web Rust**, siguiendo el patrón `core`/`web` de StrawTraduccion:
-`lafinale-core` concentra reglas CP932 y más adelante SF03, HyPack, layout,
-verificación y parches PE; `lafinale-web` expone una interfaz local Axum en
+`lafinale-core` concentra reglas CP932 y el port del parche PE de prueba;
+SF03, HyPack y layout siguen pendientes. `lafinale-web` expone una interfaz local Axum en
 `127.0.0.1`, nunca abierta por defecto a otras máquinas. El formulario
-actual **solo previsualiza capacidad**, no persiste ni parchea.
+actual previsualiza capacidad y permite crear un EXE diagnóstico en `output/`,
+pero no persiste traducciones ni parchea la instalación.
 
 Los prototipos Python anteriores son referencia para portar el algoritmo
 correcto, **no** una dependencia de la aplicación final. Cada módulo Rust
@@ -48,7 +50,7 @@ Estructura de partida y futuras áreas:
 ```text
 LaFinalePatch/
   Cargo.toml                   # workspace Rust
-  crates/lafinale-core/        # validador CP932; después HyPack/SF03/EXE
+  crates/lafinale-core/        # validador CP932 + EXE diagnóstico; después HyPack/SF03
   crates/lafinale-web/         # Axum + interfaz web local
   tests/                       # futuras pruebas de integración sin binarios públicos
   docs/                        # futuras notas de formatos y pruebas Windows

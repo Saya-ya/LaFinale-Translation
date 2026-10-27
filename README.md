@@ -4,7 +4,7 @@ Aplicación web **local** en Rust para preparar la traducción de *Solfège ~La 
 
 Inspirada en la separación `core`/`web` de [StrawTraduccion](https://github.com/Saya-ya/StrawTraduccion), pero con formatos y límites propios de este juego. Proyecto fan, gratuito y no oficial.
 
-> **Estado: prototipo inicial, NO es un parche instalable.** La web solo valida y previsualiza texto y prepara sus carpetas locales. No extrae, importa, guarda traducciones, genera PAK ni modifica ejecutables todavía. Los experimentos anteriores se mantienen fuera de este repositorio.
+> **Estado: prototipo diagnóstico, NO es un parche instalable.** La web previsualiza texto, prepara carpetas y permite generar un EXE de prueba independiente. No extrae, importa, guarda traducciones ni genera PAK todavía. Los experimentos anteriores se mantienen fuera de este repositorio.
 
 ## Por qué hay límites específicos
 
@@ -30,7 +30,7 @@ Inicia el servidor **desde la raíz del repositorio**. Antes de escuchar peticio
 originales/          # aquí pondrá el usuario Script.pak y SolfegeLF.exe
 work/                # datos de trabajo futuros; aún no se escriben
 work/translations/   # JSON locales futuros; aún no se importan
-output/              # PAK y EXE construidos futuros; aún no se generan
+output/              # EXE diagnóstico actual; PAK futuro
 ```
 
 Las tres áreas de datos están ignoradas por Git. Si una de estas rutas ya es un archivo o un enlace en lugar de una carpeta, la aplicación **se detiene con error** en vez de reemplazarla. Los originales existentes nunca se sobrescriben. Si vas a lanzar el binario desde otra carpeta, define `LAFINALE_HOME` apuntando a la raíz del proyecto.
@@ -40,6 +40,7 @@ Las tres áreas de datos están ignoradas por Git. Si una de estas rutas ya es u
 | `GET /health` | Respuesta simple `ok` (compatibilidad con el prototipo). |
 | `GET /api/health` | Salud en JSON. |
 | `GET /api/status` | Estado de las cuatro carpetas y presencia de `originales/Script.pak` y `originales/SolfegeLF.exe`. |
+| `POST /api/exe/build` | Aplica **solo** al EXE NoDVD de SHA-256 `a7e4999ff54e56499130a45427ab0273bc6b9d475e03c93f493cb6b592a13a79`; crea `output/SolfegeLF_DIAGNOSTIC.exe` sin sobrescribir. |
 
 Ejemplo de respuesta de `/api/status` en una instalación nueva:
 
@@ -55,7 +56,15 @@ Ejemplo de respuesta de `/api/status` en una instalación nueva:
 }
 ```
 
-`present` solo comprueba si existe un archivo regular. **No implica que sea una versión compatible**: la lectura de cabeceras y hashes del EXE/PAK se implementará más adelante. Los endpoints son de consulta: no aceptan rutas del cliente ni instalan parches.
+`present` solo comprueba si existe un archivo regular. **No implica que sea una versión compatible**: `/api/status` todavía no verifica hashes ni formatos; la verificación del PAK queda pendiente. Los endpoints de estado son de consulta: no aceptan rutas del cliente ni instalan parches.
+
+El endpoint de construcción es la excepción: verifica el **hash completo del EXE NoDVD**, estructura PE32 y firmas de bytes, aplica SBCS/DBCS, conserva los espacios ASCII y amplía el límite **diagnóstico** de 26 a 52 bytes CP932 por slot. Comprueba los hashes de cada fase contra los prototipos. Rechaza una versión distinta con HTTP 422, una entrada ausente con 404 y una salida existente con 409. No acepta rutas proporcionadas por el cliente. Ejemplo, después de depositar el EXE propio:
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/exe/build
+```
+
+**Advertencia:** el motor seguirá truncando líneas superiores a 52 bytes; el parche no mide píxeles, no pagina automáticamente y no soluciona la UI del menú. El español se agrega mediante el futuro `Script.pak` traducido, **no incrustando frases en el EXE**. La salida no sustituye `SolfegeLF.exe` de la instalación ni debe presentarse como parche final. La API es local: la operación de escritura exige `Host: 127.0.0.1:8080` y rechaza solicitudes web de otro origen.
 
 Para desarrollo:
 
@@ -77,7 +86,7 @@ PLAN_DE_ACCION.md    # fases, límites y pruebas pendientes
 1. Validar en Windows saltos de renglón/página, menú, historial y mezcla japonés/ASCII.
 2. Importar `Script.pak` original y JSON; conservar índices y bytecode; editor web con estados de capacidad **en bytes**, revisión de saltos y traducción sin alterar los originales.
 3. Reempaquetar y verificar por reextracción las 118 entradas; generar `Script.pak` nuevo fuera de la instalación.
-4. Parchear **solo un EXE de versión verificada** para SBCS/DBCS, espacios ASCII y límites de memoria; exigir firma/hash y emitir archivo nuevo con reporte.
+4. Evolucionar el parche EXE diagnóstico actual, limitado a una versión verificada (SBCS/DBCS, espacios ASCII y 52 bytes), hacia una solución comprobada visualmente antes de integrarlo como parche final.
 5. Añadir instalación opcional con respaldo/confirmación y restauración. Sin resultados silenciosamente truncados.
 
 Detalles y criterios de aceptación: [PLAN_DE_ACCION.md](PLAN_DE_ACCION.md).

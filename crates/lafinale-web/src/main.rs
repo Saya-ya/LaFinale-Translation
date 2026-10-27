@@ -1,12 +1,14 @@
 use axum::{
     extract::{Form, State},
+    http::{HeaderMap, StatusCode},
     response::Html,
     routing::get,
     Json, Router,
 };
 use lafinale_core::{
     check_capacity,
-    workspace::{Workspace, DIRECTORIES},
+    exe_patch::{self, PatchError},
+    workspace::{BuildError, Workspace, DIRECTORIES},
 };
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, path::PathBuf};
@@ -37,6 +39,19 @@ struct ApiStatus {
     inputs: InputStatus,
 }
 
+#[derive(Serialize)]
+struct ExeResult {
+    output: &'static str,
+    sha256: &'static str,
+    diagnostic_only: bool,
+    note: &'static str,
+}
+
+#[derive(Serialize)]
+struct ApiError {
+    error: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // From the repository root by default; a launcher can set LAFINALE_HOME.
@@ -50,12 +65,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(|| async { "ok" }))
         .route("/api/health", get(|| async { Json("ok") }))
         .route("/api/status", get(api_status))
+        .route("/api/exe/build", axum::routing::post(build_exe))
         .with_state(workspace);
     let address: SocketAddr = "127.0.0.1:8080".parse()?;
     let listener = tokio::net::TcpListener::bind(address).await?;
     println!("Web local: http://{address} (GET /api/status)");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn build_exe(
+    State(workspace): State<Workspace>,
+    headers: HeaderMap,
+) -> Result<Json<ExeResult>, (StatusCode, Json<ApiError>)> {
+    // A page on another origin must not trigger a write via a simple HTML form.
+    if headers.get("host").and_then(|v| v.to_str().ok()) != Some("127.0.0.1:8080")
+        || headers
+            .get("origin")
+            .is_some_and(|v| v != "http://127.0.0.1:8080")
+        || headers
+            .get("sec-fetch-site")
+            .is_some_and(|v| v == "cross-site")
+    {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            "Solo se aceptan solicitudes locales del mismo origen".into(),
+        ));
+    }
+    let result = tokio::task::spawn_blocking(move || workspace.build_exe_diagnostic())
+        .await
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    match result {
+        Ok(_) => Ok(Json(ExeResult {
+            output: "output/SolfegeLF_DIAGNOSTIC.exe",
+            sha256: exe_patch::DIAGNOSTIC_SHA256,
+            diagnostic_only: true,
+            note: "52 bytes CP932/slot; ancho visual, menú y paginación pendientes de validar",
+        })),
+        Err(error) => {
+            let code = match &error {
+                BuildError::MissingInput => StatusCode::NOT_FOUND,
+                BuildError::OutputExists => StatusCode::CONFLICT,
+                BuildError::UnsafeInput
+                | BuildError::Patch(PatchError::UnsupportedExe(_))
+                | BuildError::Patch(PatchError::InvalidPe(_))
+                | BuildError::Patch(PatchError::Mismatch(_)) => StatusCode::UNPROCESSABLE_ENTITY,
+                BuildError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            Err(api_error(code, error.to_string()))
+        }
+    }
+}
+
+fn api_error(code: StatusCode, error: String) -> (StatusCode, Json<ApiError>) {
+    (code, Json(ApiError { error }))
 }
 
 async fn api_status(State(workspace): State<Workspace>) -> Json<ApiStatus> {

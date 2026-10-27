@@ -2,8 +2,11 @@
 
 use std::{
     fmt, fs, io,
+    io::Write,
     path::{Path, PathBuf},
 };
+
+use crate::exe_patch::{self, PatchError};
 
 pub const ORIGINALS: &str = "originales";
 pub const WORK: &str = "work";
@@ -11,6 +14,46 @@ pub const TRANSLATIONS: &str = "work/translations";
 pub const OUTPUT: &str = "output";
 
 pub const DIRECTORIES: [&str; 4] = [ORIGINALS, WORK, TRANSLATIONS, OUTPUT];
+pub const DIAGNOSTIC_EXE: &str = "SolfegeLF_DIAGNOSTIC.exe";
+
+#[derive(Debug)]
+pub enum BuildError {
+    MissingInput,
+    OutputExists,
+    UnsafeInput,
+    Patch(PatchError),
+    Io(io::Error),
+}
+
+impl fmt::Display for BuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingInput => write!(
+                f,
+                "Coloca el EXE NoDVD compatible en originales/SolfegeLF.exe"
+            ),
+            Self::OutputExists => write!(
+                f,
+                "Ya existe output/SolfegeLF_DIAGNOSTIC.exe; no se sobrescribe"
+            ),
+            Self::UnsafeInput => write!(f, "La entrada debe ser un archivo regular, no un enlace"),
+            Self::Patch(error) => error.fmt(f),
+            Self::Io(error) => write!(f, "Error de entrada/salida: {error}"),
+        }
+    }
+}
+
+impl From<io::Error> for BuildError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+impl From<PatchError> for BuildError {
+    fn from(error: PatchError) -> Self {
+        Self::Patch(error)
+    }
+}
 
 #[derive(Debug)]
 pub enum WorkspaceError {
@@ -93,6 +136,44 @@ impl Workspace {
             has_script_pak: is_regular_file(&self.root.join(ORIGINALS).join("Script.pak")),
             has_exe: is_regular_file(&self.root.join(ORIGINALS).join("SolfegeLF.exe")),
         }
+    }
+
+    /// Reads the fixed local input and writes one new diagnostic output. No
+    /// arbitrary path from HTTP is accepted; create_new prevents overwrites.
+    pub fn build_exe_diagnostic(&self) -> Result<&'static str, BuildError> {
+        let source = self.root.join(ORIGINALS).join("SolfegeLF.exe");
+        let metadata = match fs::symlink_metadata(&source) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(BuildError::MissingInput)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.is_file() {
+            return Err(BuildError::UnsafeInput);
+        }
+        let input = fs::read(source)?;
+        let patched = exe_patch::build_diagnostic(&input)?;
+        let destination = self.root.join(OUTPUT).join(DIAGNOSTIC_EXE);
+        let mut output = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                return Err(BuildError::OutputExists)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let result = output.write_all(&patched).and_then(|_| output.sync_all());
+        drop(output);
+        if let Err(error) = result {
+            // Only remove the file created by this call, never an existing output.
+            let _ = fs::remove_file(destination);
+            return Err(BuildError::Io(error));
+        }
+        Ok(DIAGNOSTIC_EXE)
     }
 }
 
