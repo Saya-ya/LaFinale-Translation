@@ -9,6 +9,7 @@ document.title = `${{ "/": "Inicio", "/importar": "Importar", "/parchear": "Parc
 
 const $ = (id) => document.getElementById(id);
 const buildButton = $("build-exe");
+const importButton = $("import-start");
 let working = false;
 
 function badge(id, found, yes = "Encontrado", no = "No encontrado") {
@@ -42,9 +43,11 @@ async function refreshStatus() {
       $("json-patch-count").textContent = "No disponible";
     }
     buildButton.disabled = working || !exe || exeOutput;
+    importButton.disabled = working || !pak || count !== 0;
     $("status-error").hidden = true;
   } catch {
     buildButton.disabled = true;
+    importButton.disabled = true;
     $("status-error").hidden = false;
   }
 }
@@ -66,6 +69,28 @@ buildButton.addEventListener("click", async () => {
   } catch (error) {
     message.classList.add("error");
     message.textContent = error.message || "No se pudo generar el EXE.";
+  } finally {
+    working = false;
+    await refreshStatus();
+  }
+});
+
+importButton.addEventListener("click", async () => {
+  if (working || !window.confirm("Se crearán JSON en work/translations/ desde tu Script.pak original. La carpeta debe estar vacía. ¿Continuar?")) return;
+  working = true;
+  importButton.disabled = true;
+  const message = $("import-message");
+  message.hidden = false;
+  message.classList.remove("error");
+  message.textContent = "Validando PAK y extrayendo los diálogos…";
+  try {
+    const response = await fetch("/api/import", { method: "POST", headers: { "Accept": "application/json" } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `Error HTTP ${response.status}`);
+    message.textContent = `Listos ${result.scripts} JSON y ${result.strings.toLocaleString("es-ES")} cadenas en ${result.destination}. Sin traducciones aplicadas todavía.`;
+  } catch (error) {
+    message.classList.add("error");
+    message.textContent = error.message || "No se pudo importar el PAK.";
   } finally {
     working = false;
     await refreshStatus();

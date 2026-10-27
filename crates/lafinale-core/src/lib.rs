@@ -3,6 +3,7 @@
 use encoding_rs::SHIFT_JIS;
 
 pub mod exe_patch;
+pub mod kgo;
 pub mod pak;
 pub mod workspace;
 

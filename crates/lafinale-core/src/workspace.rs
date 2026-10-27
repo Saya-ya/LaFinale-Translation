@@ -6,7 +6,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::exe_patch::{self, PatchError};
+use crate::{
+    exe_patch::{self, PatchError},
+    kgo,
+    pak::{self, Archive},
+};
 
 pub const ORIGINALS: &str = "originales";
 pub const WORK: &str = "work";
@@ -15,6 +19,40 @@ pub const OUTPUT: &str = "output";
 
 pub const DIRECTORIES: [&str; 4] = [ORIGINALS, WORK, TRANSLATIONS, OUTPUT];
 pub const DIAGNOSTIC_EXE: &str = "SolfegeLF_DIAGNOSTIC.exe";
+
+#[derive(Debug)]
+pub enum ImportError {
+    MissingInput,
+    Occupied,
+    Invalid(String),
+    Io(io::Error),
+}
+
+impl fmt::Display for ImportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingInput => write!(f, "Coloca el PAK original en originales/Script.pak"),
+            Self::Occupied => write!(
+                f,
+                "work/translations/ ya contiene archivos; no se sobrescriben"
+            ),
+            Self::Invalid(message) => write!(f, "No se importó el PAK: {message}"),
+            Self::Io(error) => write!(f, "Error de entrada/salida: {error}"),
+        }
+    }
+}
+
+impl From<io::Error> for ImportError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportSummary {
+    pub scripts: usize,
+    pub strings: usize,
+}
 
 #[derive(Debug)]
 pub enum BuildError {
@@ -144,6 +182,83 @@ impl Workspace {
         }
     }
 
+    /// Imports the exact original PAK into *new* JSON files. No original game
+    /// data is modified; all 117 scripts are validated before writing any JSON.
+    pub fn import_translations(&self) -> Result<ImportSummary, ImportError> {
+        let source = self.root.join(ORIGINALS).join("Script.pak");
+        let metadata = match fs::symlink_metadata(&source) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(ImportError::MissingInput)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 {
+            return Err(ImportError::Invalid(
+                "se espera un archivo regular de hasta 32 MiB".into(),
+            ));
+        }
+        let destination = self.root.join(TRANSLATIONS);
+        if fs::read_dir(&destination)?.next().is_some() {
+            return Err(ImportError::Occupied);
+        }
+        let data = fs::read(source)?;
+        let hash = exe_patch::sha256(&data);
+        if hash != pak::ORIGINAL_SHA256 {
+            return Err(ImportError::Invalid(format!(
+                "versión de PAK no reconocida (SHA-256: {hash})"
+            )));
+        }
+        let archive =
+            Archive::parse(&data).map_err(|error| ImportError::Invalid(error.to_string()))?;
+        let mut staged = Vec::with_capacity(117);
+        let mut strings = 0;
+        for (index, entry) in archive.entries.iter().enumerate().skip(1) {
+            let raw = archive
+                .unpack(index)
+                .map_err(|error| ImportError::Invalid(error.to_string()))?;
+            let script = kgo::extract(&raw, &entry.name)
+                .map_err(|error| ImportError::Invalid(format!("{}: {error}", entry.name)))?;
+            strings += script.string_count;
+            let json = serde_json::to_vec_pretty(&script)
+                .map_err(|error| ImportError::Invalid(error.to_string()))?;
+            let name = entry
+                .name
+                .strip_suffix(".kgo")
+                .expect("nombre validado en el PAK");
+            staged.push((destination.join(format!("{name}.json")), json));
+        }
+        // Reject unknown contents as well, not only existing JSON files.
+        if fs::read_dir(&destination)?.next().is_some() {
+            return Err(ImportError::Occupied);
+        }
+        let mut created = Vec::new();
+        for (path, bytes) in &staged {
+            let result = (|| -> io::Result<()> {
+                let mut file = fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(path)?;
+                created.push(path.clone());
+                file.write_all(bytes)?;
+                file.sync_all()
+            })();
+            if let Err(error) = result {
+                for path in created {
+                    let _ = fs::remove_file(path);
+                }
+                if error.kind() == io::ErrorKind::AlreadyExists {
+                    return Err(ImportError::Occupied);
+                }
+                return Err(error.into());
+            }
+        }
+        Ok(ImportSummary {
+            scripts: staged.len(),
+            strings,
+        })
+    }
+
     /// Reads the fixed local input and writes one new diagnostic output. No
     /// arbitrary path from HTTP is accepted; create_new prevents overwrites.
     pub fn build_exe_diagnostic(&self) -> Result<&'static str, BuildError> {
@@ -248,6 +363,72 @@ mod tests {
         assert_eq!(workspace.status().translation_json_count, Some(1));
         assert!(workspace.status().output_pak_present);
         assert!(!workspace.status().diagnostic_exe_present);
+    }
+
+    #[test]
+    fn import_rejects_unknown_without_creating_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::initialize(dir.path()).unwrap();
+        assert!(matches!(
+            workspace.import_translations(),
+            Err(ImportError::MissingInput)
+        ));
+        fs::write(dir.path().join(ORIGINALS).join("Script.pak"), b"not a pak").unwrap();
+        assert!(matches!(
+            workspace.import_translations(),
+            Err(ImportError::Invalid(_))
+        ));
+        assert_eq!(workspace.status().translation_json_count, Some(0));
+    }
+
+    #[test]
+    fn import_does_not_overwrite_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::initialize(dir.path()).unwrap();
+        let file = dir.path().join(TRANSLATIONS).join("my-work.json");
+        fs::write(&file, b"user content").unwrap();
+        fs::write(dir.path().join(ORIGINALS).join("Script.pak"), b"not a pak").unwrap();
+        assert!(matches!(
+            workspace.import_translations(),
+            Err(ImportError::Occupied)
+        ));
+        assert_eq!(fs::read(file).unwrap(), b"user content");
+    }
+
+    #[test]
+    fn import_known_pak_when_supplied_locally() {
+        let Ok(path) = std::env::var("LAFINALE_TEST_PAK") else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::initialize(dir.path()).unwrap();
+        let original = dir.path().join(ORIGINALS).join("Script.pak");
+        fs::copy(path, &original).unwrap();
+        let summary = workspace.import_translations().unwrap();
+        assert_eq!(
+            summary,
+            ImportSummary {
+                scripts: 117,
+                strings: 77258
+            }
+        );
+        assert_eq!(workspace.status().translation_json_count, Some(117));
+        let json = fs::read_to_string(dir.path().join(TRANSLATIONS).join("scr00001.json")).unwrap();
+        let document: kgo::Script = serde_json::from_str(&json).unwrap();
+        assert_eq!(document.filename, "scr00001.kgo");
+        assert_eq!(
+            document.strings[0].japanese,
+            "【大企業重役】　「……今度の契約が……」"
+        );
+        assert_eq!(document.strings[0].spanish, "");
+        assert!(matches!(
+            workspace.import_translations(),
+            Err(ImportError::Occupied)
+        ));
+        assert_eq!(
+            exe_patch::sha256(&fs::read(original).unwrap()),
+            pak::ORIGINAL_SHA256
+        );
     }
 
     #[cfg(unix)]

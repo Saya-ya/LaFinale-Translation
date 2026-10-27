@@ -49,15 +49,16 @@
     </section>
 
     <section id="import" data-view="/importar" aria-labelledby="import-title" hidden>
-      <div class="page-intro"><span class="eyebrow">01 / Preparación</span><h1 id="import-title">Importar diálogos</h1><p>La importación extraerá las cadenas de los scripts del PAK original a JSON de trabajo, conservando índices y datos del juego.</p></div>
+      <div class="page-intro"><span class="eyebrow">01 / Preparación</span><h1 id="import-title">Importar diálogos</h1><p>Extrae las cadenas SF03 de los 117 scripts del PAK original a JSON locales para la futura traducción, sin modificar el PAK.</p></div>
       <div class="two-column">
         <article class="panel featured"><div class="panel-title"><span class="step-icon">01</span><h2>Archivo necesario</h2></div>
-          <p>Coloca tu <code>Script.pak</code> original en <code>originales/Script.pak</code>.</p>
+          <p>Coloca tu <code>Script.pak</code> original en <code>originales/Script.pak</code>. Solo se acepta la versión cuyo hash se ha probado; no sobrescribe JSON existentes.</p>
           <div class="file-row"><div><strong>Script.pak</strong><small>Estado local</small></div><span class="badge" id="pak-import">Comprobando…</span></div>
-          <button type="button" class="button primary" disabled>Iniciar importación</button>
-          <p class="subtle">Próximamente · todavía no hay extractor HyPack/SF03 en Rust. Este botón no ejecuta nada.</p>
+          <button type="button" class="button primary" id="import-start" disabled>Iniciar importación</button>
+          <p class="subtle">La carpeta work/translations/ debe estar vacía. No se importan archivos del juego al repositorio.</p>
+          <p id="import-message" class="result" role="status" aria-live="polite" hidden></p>
         </article>
-        <aside class="panel guidance"><span class="eyebrow">Destino previsto</span><h2>JSON para traducir</h2><p>Los diálogos extraídos irán a <code>work/translations/</code>. Esa carpeta es local y está excluida de Git.</p><p>Se comprobarán índices, codificación CP932 y contenido al implementar la importación; detectar un archivo no significa que sea válido.</p></aside>
+        <aside class="panel guidance"><span class="eyebrow">Destino local</span><h2>JSON para traducir</h2><p>Los diálogos se guardan en <code>work/translations/</code>, carpeta excluida de Git.</p><p>Cada JSON contiene el índice y texto japonés, con <code>spanish</code> vacío. La presencia de JSON no demuestra que exista una traducción ni que sus futuras ediciones sean válidas.</p></aside>
       </div>
     </section>
 
@@ -77,7 +78,7 @@
           <div class="file-row"><div><strong>Entrada</strong><small>originales/Script.pak</small></div><span class="badge" id="pak-patch-input">Comprobando…</span></div>
           <div class="file-row"><div><strong>JSON encontrados</strong><small>work/translations/</small></div><span class="badge" id="json-patch-count">Comprobando…</span></div>
           <button type="button" class="button secondary" disabled>Generar Script.pak</button>
-          <p class="subtle">Próximamente · faltan la extracción y reempaquetado en Rust, además de las pruebas de paginación y menú.</p>
+          <p class="subtle">Próximamente · faltan reempaquetado y pruebas de paginación y menú.</p>
         </article>
       </div>
     </section>

@@ -7,7 +7,7 @@ use axum::{
 };
 use lafinale_core::{
     exe_patch::{self, PatchError},
-    workspace::{BuildError, Workspace, DIRECTORIES},
+    workspace::{BuildError, ImportError, Workspace, DIRECTORIES},
 };
 use serde::Serialize;
 use std::{net::SocketAddr, path::PathBuf};
@@ -56,6 +56,13 @@ struct ApiError {
     error: String,
 }
 
+#[derive(Serialize)]
+struct ImportResult {
+    scripts: usize,
+    strings: usize,
+    destination: &'static str,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // From the repository root by default; a launcher can set LAFINALE_HOME.
@@ -74,6 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/health", get(|| async { Json("ok") }))
         .route("/api/status", get(api_status))
         .route("/api/exe/build", axum::routing::post(build_exe))
+        .route("/api/import", axum::routing::post(import_pak))
         .with_state(workspace);
     let address: SocketAddr = "127.0.0.1:8080".parse()?;
     let listener = tokio::net::TcpListener::bind(address).await?;
@@ -86,20 +94,7 @@ async fn build_exe(
     State(workspace): State<Workspace>,
     headers: HeaderMap,
 ) -> Result<Json<ExeResult>, (StatusCode, Json<ApiError>)> {
-    // A page on another origin must not trigger a write via a simple HTML form.
-    if headers.get("host").and_then(|v| v.to_str().ok()) != Some("127.0.0.1:8080")
-        || headers
-            .get("origin")
-            .is_some_and(|v| v != "http://127.0.0.1:8080")
-        || headers
-            .get("sec-fetch-site")
-            .is_some_and(|v| v == "cross-site")
-    {
-        return Err(api_error(
-            StatusCode::FORBIDDEN,
-            "Solo se aceptan solicitudes locales del mismo origen".into(),
-        ));
-    }
+    local_write_only(&headers)?;
     let result = tokio::task::spawn_blocking(move || workspace.build_exe_diagnostic())
         .await
         .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -123,6 +118,50 @@ async fn build_exe(
             Err(api_error(code, error.to_string()))
         }
     }
+}
+
+async fn import_pak(
+    State(workspace): State<Workspace>,
+    headers: HeaderMap,
+) -> Result<Json<ImportResult>, (StatusCode, Json<ApiError>)> {
+    local_write_only(&headers)?;
+    let result = tokio::task::spawn_blocking(move || workspace.import_translations())
+        .await
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    match result {
+        Ok(summary) => Ok(Json(ImportResult {
+            scripts: summary.scripts,
+            strings: summary.strings,
+            destination: "work/translations/",
+        })),
+        Err(error) => {
+            let code = match &error {
+                ImportError::MissingInput => StatusCode::NOT_FOUND,
+                ImportError::Occupied => StatusCode::CONFLICT,
+                ImportError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
+                ImportError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            Err(api_error(code, error.to_string()))
+        }
+    }
+}
+
+fn local_write_only(headers: &HeaderMap) -> Result<(), (StatusCode, Json<ApiError>)> {
+    // A page on another origin must not trigger a write via a simple HTML form.
+    if headers.get("host").and_then(|v| v.to_str().ok()) != Some("127.0.0.1:8080")
+        || headers
+            .get("origin")
+            .is_some_and(|v| v != "http://127.0.0.1:8080")
+        || headers
+            .get("sec-fetch-site")
+            .is_some_and(|v| v == "cross-site")
+    {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            "Solo se aceptan solicitudes locales del mismo origen".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn api_error(code: StatusCode, error: String) -> (StatusCode, Json<ApiError>) {

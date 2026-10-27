@@ -4,9 +4,9 @@ Aplicación web **local** en Rust para preparar la traducción de *Solfège ~La 
 
 Inspirada en la separación `core`/`web` de [StrawTraduccion](https://github.com/Saya-ya/StrawTraduccion), pero con formatos y límites propios de este juego. Proyecto fan, gratuito y no oficial.
 
-> **Estado: prototipo diagnóstico, NO es un parche instalable.** La web muestra el estado del espacio de trabajo y permite generar un EXE de prueba independiente. La importación de JSON y el parche PAK aún no funcionan; sus botones están desactivados. Los experimentos anteriores se mantienen fuera de este repositorio.
+> **Estado: prototipo diagnóstico, NO es un parche instalable.** La web muestra el estado local, importa a JSON los diálogos del PAK original probado y genera un EXE de prueba independiente. El parche PAK aún no funciona y su botón está desactivado. Los experimentos anteriores se mantienen fuera de este repositorio.
 
-El núcleo Rust ya dispone de un lector HyPack v3/Cocotte de solo lectura: valida CRC y descomprime las 118 entradas del PAK original probado. Aún no expone la importación a JSON hasta portar y verificar los registros SF03.
+El núcleo Rust lee HyPack v3/Cocotte, valida CRC y descomprime las 118 entradas del PAK original probado. Comprueba los 117 scripts SF03 y genera JSON por índice sin modificar el original.
 
 ## Por qué hay límites específicos
 
@@ -22,7 +22,7 @@ Requiere Rust estable y Cargo. Desde la raíz de este repositorio:
 cargo run -p lafinale-web
 ```
 
-Abre <http://127.0.0.1:8080>. El servidor escucha únicamente en `127.0.0.1`. La barra superior permite navegar entre **Inicio** (archivos, salidas, JSON presentes e idiomas japonés → español), **Importar** (flujo de extracción previsto) y **Parchear** (EXE diagnóstico funcional y PAK pendiente). La interfaz no depende de fuentes, scripts ni servicios externos. No se sube texto a servicios externos.
+Abre <http://127.0.0.1:8080>. El servidor escucha únicamente en `127.0.0.1`. La barra superior permite navegar entre **Inicio** (archivos, salidas, JSON presentes e idiomas japonés → español), **Importar** (extrae 117 JSON originales) y **Parchear** (EXE diagnóstico funcional y PAK pendiente). La interfaz no depende de fuentes, scripts ni servicios externos. No se sube texto a servicios externos.
 
 ### Primera ejecución y API
 
@@ -31,7 +31,7 @@ Inicia el servidor **desde la raíz del repositorio**. Antes de escuchar peticio
 ```text
 originales/          # aquí pondrá el usuario Script.pak y SolfegeLF.exe
 work/                # datos de trabajo futuros; aún no se escriben
-work/translations/   # JSON locales futuros; aún no se importan
+work/translations/   # JSON extraídos localmente; no se suben a Git
 output/              # EXE diagnóstico actual; PAK futuro
 ```
 
@@ -43,6 +43,7 @@ Las tres áreas de datos están ignoradas por Git. Si una de estas rutas ya es u
 | `GET /api/health` | Salud en JSON. |
 | `GET /api/status` | Estado de carpetas, entradas, recuento de `.json` regulares en `work/translations/` y presencia de las salidas. |
 | `POST /api/exe/build` | Aplica **solo** al EXE NoDVD de SHA-256 `a7e4999ff54e56499130a45427ab0273bc6b9d475e03c93f493cb6b592a13a79`; crea `output/SolfegeLF_DIAGNOSTIC.exe` sin sobrescribir. |
+| `POST /api/import` | Solo PAK original con SHA-256 `b5666dc0155b7534b9455100b39b6e8c40e28051f47aa208517a2b645e1bb40e`; extrae los 117 JSON a `work/translations/` **vacía**, sin sobrescribir. |
 
 Ejemplo de respuesta de `/api/status` en una instalación nueva:
 
@@ -60,6 +61,8 @@ Ejemplo de respuesta de `/api/status` en una instalación nueva:
 ```
 
 `present` solo comprueba si existe un archivo regular; el recuento JSON **no interpreta su contenido** (es `null` si no puede examinarse la carpeta). **No implica que haya una traducción válida**: `/api/status` todavía no verifica hashes ni formatos; la verificación del PAK queda pendiente. Los endpoints de estado son de consulta: no aceptan rutas del cliente ni instalan parches.
+
+La importación verifica el hash del PAK, CRC global y por entrada, descomprime Cocotte y comprueba los 117 scripts SF03 antes de escribir. Extrae `japanese`, `index`, `rel_offset`, `raw_len` y un campo `spanish` vacío; **no detecta ni añade traducciones**. Rechaza entradas de otra versión y no pisa JSON previos. Si falla una escritura, retira solo los archivos creados por esa petición. `POST /api/import` no acepta rutas del cliente.
 
 El endpoint de construcción es la excepción: verifica el **hash completo del EXE NoDVD**, estructura PE32 y firmas de bytes, aplica SBCS/DBCS, conserva los espacios ASCII y amplía el límite **diagnóstico** de 26 a 52 bytes CP932 por slot. Comprueba los hashes de cada fase contra los prototipos. Rechaza una versión distinta con HTTP 422, una entrada ausente con 404 y una salida existente con 409. No acepta rutas proporcionadas por el cliente. Ejemplo, después de depositar el EXE propio:
 
@@ -81,7 +84,7 @@ cargo check --workspace
 
 ```text
 crates/
-  lafinale-core/     # validación CP932 y, después, SF03/HyPack/EXE
+  lafinale-core/     # validación CP932, lectura SF03/HyPack y EXE diagnóstico
   lafinale-web/      # Axum; tres vistas locales, API de estado y EXE diagnóstico
 PLAN_DE_ACCION.md    # fases, límites y pruebas pendientes
 ```
