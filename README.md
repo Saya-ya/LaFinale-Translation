@@ -6,6 +6,8 @@ Inspirada en la separación `core`/`web` de [StrawTraduccion](https://github.com
 
 > **Estado: prototipo diagnóstico, NO es un parche instalable.** La web muestra el estado del espacio de trabajo y permite generar un EXE de prueba independiente. La importación de JSON y el parche PAK aún no funcionan; sus botones están desactivados. Los experimentos anteriores se mantienen fuera de este repositorio.
 
+El núcleo Rust ya dispone de un lector HyPack v3/Cocotte de solo lectura: valida CRC y descomprime las 118 entradas del PAK original probado. Aún no expone la importación a JSON hasta portar y verificar los registros SF03.
+
 ## Por qué hay límites específicos
 
 El motor usa archivos **HyPack v3** (`Script.pak`) y scripts **SF03** (`.kgo`) cuyos índices de texto deben mantenerse. Las cadenas se codifican en **CP932**. El EXE original elimina espacios ASCII y el compositor del diálogo usa slots de **53 bytes**, incluido el terminador NUL: **52 bytes útiles**, no 52 caracteres Unicode.
