@@ -2,6 +2,8 @@
 
 use encoding_rs::SHIFT_JIS;
 
+pub mod workspace;
+
 /// One engine slot contains at most 52 CP932 bytes plus its NUL terminator.
 pub const SLOT_PAYLOAD_BYTES: usize = 52;
 /// Conservative *test* threshold, not a verified number of pixels.

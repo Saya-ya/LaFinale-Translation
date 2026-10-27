@@ -7,3 +7,6 @@ description = "Validated text constraints for Solfege La finale"
 
 [dependencies]
 encoding_rs = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

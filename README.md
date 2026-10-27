@@ -4,7 +4,7 @@ Aplicación web **local** en Rust para preparar la traducción de *Solfège ~La 
 
 Inspirada en la separación `core`/`web` de [StrawTraduccion](https://github.com/Saya-ya/StrawTraduccion), pero con formatos y límites propios de este juego. Proyecto fan, gratuito y no oficial.
 
-> **Estado: prototipo inicial, NO es un parche instalable.** La web solo valida y previsualiza texto. No extrae, importa, guarda, genera PAK ni modifica ejecutables todavía. Los experimentos anteriores se mantienen fuera de este repositorio.
+> **Estado: prototipo inicial, NO es un parche instalable.** La web solo valida y previsualiza texto y prepara sus carpetas locales. No extrae, importa, guarda traducciones, genera PAK ni modifica ejecutables todavía. Los experimentos anteriores se mantienen fuera de este repositorio.
 
 ## Por qué hay límites específicos
 
@@ -20,7 +20,42 @@ Requiere Rust estable y Cargo. Desde la raíz de este repositorio:
 cargo run -p lafinale-web
 ```
 
-Abre <http://127.0.0.1:8080>. El servidor escucha únicamente en `127.0.0.1`. Puedes pegar una frase en el formulario y ver cuántos bytes CP932 ocuparía, cuántos quedarían en un tramo conservador y si excede la capacidad física del slot. También está disponible `GET /health`. No se sube texto a servicios externos ni se escribe en disco.
+Abre <http://127.0.0.1:8080>. El servidor escucha únicamente en `127.0.0.1`. Puedes pegar una frase en el formulario y ver cuántos bytes CP932 ocuparía, cuántos quedarían en un tramo conservador y si excede la capacidad física del slot. También está disponible `GET /health`. No se sube texto a servicios externos ni se guardan las frases ingresadas.
+
+### Primera ejecución y API
+
+Inicia el servidor **desde la raíz del repositorio**. Antes de escuchar peticiones, crea solo las carpetas ausentes:
+
+```text
+originales/          # aquí pondrá el usuario Script.pak y SolfegeLF.exe
+work/                # datos de trabajo futuros; aún no se escriben
+work/translations/   # JSON locales futuros; aún no se importan
+output/              # PAK y EXE construidos futuros; aún no se generan
+```
+
+Las tres áreas de datos están ignoradas por Git. Si una de estas rutas ya es un archivo o un enlace en lugar de una carpeta, la aplicación **se detiene con error** en vez de reemplazarla. Los originales existentes nunca se sobrescriben. Si vas a lanzar el binario desde otra carpeta, define `LAFINALE_HOME` apuntando a la raíz del proyecto.
+
+| Ruta | Función actual |
+| --- | --- |
+| `GET /health` | Respuesta simple `ok` (compatibilidad con el prototipo). |
+| `GET /api/health` | Salud en JSON. |
+| `GET /api/status` | Estado de las cuatro carpetas y presencia de `originales/Script.pak` y `originales/SolfegeLF.exe`. |
+
+Ejemplo de respuesta de `/api/status` en una instalación nueva:
+
+```json
+{
+  "directories": [
+    {"path":"originales","exists":true},
+    {"path":"work","exists":true},
+    {"path":"work/translations","exists":true},
+    {"path":"output","exists":true}
+  ],
+  "inputs": {"script_pak_present":false,"exe_present":false,"validated":false}
+}
+```
+
+`present` solo comprueba si existe un archivo regular. **No implica que sea una versión compatible**: la lectura de cabeceras y hashes del EXE/PAK se implementará más adelante. Los endpoints son de consulta: no aceptan rutas del cliente ni instalan parches.
 
 Para desarrollo:
 

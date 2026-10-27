@@ -1,7 +1,15 @@
-use axum::{extract::Form, response::Html, routing::get, Router};
-use lafinale_core::check_capacity;
-use serde::Deserialize;
-use std::net::SocketAddr;
+use axum::{
+    extract::{Form, State},
+    response::Html,
+    routing::get,
+    Json, Router,
+};
+use lafinale_core::{
+    check_capacity,
+    workspace::{Workspace, DIRECTORIES},
+};
+use serde::{Deserialize, Serialize};
+use std::{net::SocketAddr, path::PathBuf};
 
 const PAGE: &str = include_str!("page.html");
 
@@ -10,16 +18,60 @@ struct PreviewForm {
     text: String,
 }
 
+#[derive(Serialize)]
+struct DirectoryStatus {
+    path: &'static str,
+    exists: bool,
+}
+
+#[derive(Serialize)]
+struct InputStatus {
+    script_pak_present: bool,
+    exe_present: bool,
+    validated: bool,
+}
+
+#[derive(Serialize)]
+struct ApiStatus {
+    directories: Vec<DirectoryStatus>,
+    inputs: InputStatus,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // From the repository root by default; a launcher can set LAFINALE_HOME.
+    // No original file is opened, written, copied or patched on startup.
+    let root = std::env::var_os("LAFINALE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or(std::env::current_dir()?);
+    let workspace = Workspace::initialize(root)?;
     let app = Router::new()
         .route("/", get(index).post(preview))
-        .route("/health", get(|| async { "ok" }));
+        .route("/health", get(|| async { "ok" }))
+        .route("/api/health", get(|| async { Json("ok") }))
+        .route("/api/status", get(api_status))
+        .with_state(workspace);
     let address: SocketAddr = "127.0.0.1:8080".parse()?;
     let listener = tokio::net::TcpListener::bind(address).await?;
-    println!("Vista preliminar: http://{address}");
+    println!("Web local: http://{address} (GET /api/status)");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn api_status(State(workspace): State<Workspace>) -> Json<ApiStatus> {
+    let status = workspace.status();
+    Json(ApiStatus {
+        directories: DIRECTORIES
+            .into_iter()
+            .zip(status.directories)
+            .map(|(path, exists)| DirectoryStatus { path, exists })
+            .collect(),
+        inputs: InputStatus {
+            script_pak_present: status.has_script_pak,
+            exe_present: status.has_exe,
+            validated: false, // Detection is not a PE/HyPack signature or hash check.
+        },
+    })
 }
 
 async fn index() -> Html<String> {
