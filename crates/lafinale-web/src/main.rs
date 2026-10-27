@@ -39,6 +39,7 @@ struct ApiStatus {
 #[derive(Serialize)]
 struct WorkspaceOverview {
     translation_json_count: Option<usize>,
+    filled_spanish_count: Option<usize>,
     diagnostic_exe_present: bool,
     output_pak_present: bool,
 }
@@ -210,9 +211,11 @@ fn api_error(code: StatusCode, error: String) -> (StatusCode, Json<ApiError>) {
     (code, Json(ApiError { error }))
 }
 
-async fn api_status(State(workspace): State<Workspace>) -> Json<ApiStatus> {
-    let status = workspace.status();
-    Json(ApiStatus {
+async fn api_status(State(workspace): State<Workspace>) -> Result<Json<ApiStatus>, StatusCode> {
+    let status = tokio::task::spawn_blocking(move || workspace.status())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(ApiStatus {
         directories: DIRECTORIES
             .into_iter()
             .zip(status.directories)
@@ -225,10 +228,11 @@ async fn api_status(State(workspace): State<Workspace>) -> Json<ApiStatus> {
         },
         workspace: WorkspaceOverview {
             translation_json_count: status.translation_json_count,
+            filled_spanish_count: status.filled_spanish_count,
             diagnostic_exe_present: status.diagnostic_exe_present,
             output_pak_present: status.output_pak_present,
         },
-    })
+    }))
 }
 
 async fn index() -> Html<&'static str> {

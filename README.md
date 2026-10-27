@@ -43,7 +43,7 @@ Las tres áreas de datos están ignoradas por Git. Si una de estas rutas ya es u
 | --- | --- |
 | `GET /health` | Respuesta simple `ok` (compatibilidad con el prototipo). |
 | `GET /api/health` | Salud en JSON. |
-| `GET /api/status` | Estado de carpetas, entradas, recuento de `.json` regulares en `work/translations/` y presencia de las salidas. |
+| `GET /api/status` | Estado de carpetas y entradas, recuento de JSON, campos `spanish` no vacíos y presencia de las salidas. |
 | `POST /api/exe/build` | Aplica **solo** al EXE NoDVD de SHA-256 `a7e4999ff54e56499130a45427ab0273bc6b9d475e03c93f493cb6b592a13a79`; crea `output/SolfegeLF_DIAGNOSTIC.exe` sin sobrescribir. |
 | `POST /api/import` | Solo PAK original con SHA-256 `b5666dc0155b7534b9455100b39b6e8c40e28051f47aa208517a2b645e1bb40e`; extrae los 117 JSON a `work/translations/` **vacía**, sin sobrescribir. |
 | `POST /api/pak/build` | Requiere el mismo PAK original y los 117 JSON (al menos una traducción). Crea `output/Script.pak` **solo si no existe**; devuelve hash, número de frases y normalizaciones. |
@@ -59,11 +59,11 @@ Ejemplo de respuesta de `/api/status` en una instalación nueva:
     {"path":"output","exists":true}
   ],
   "inputs": {"script_pak_present":false,"exe_present":false,"validated":false},
-  "workspace": {"translation_json_count":0,"diagnostic_exe_present":false,"output_pak_present":false}
+  "workspace": {"translation_json_count":0,"filled_spanish_count":0,"diagnostic_exe_present":false,"output_pak_present":false}
 }
 ```
 
-`present` solo comprueba si existe un archivo regular; el recuento JSON **no interpreta su contenido** (es `null` si no puede examinarse la carpeta). **No implica que haya una traducción válida**: `/api/status` todavía no verifica hashes ni formatos; la verificación del PAK queda pendiente. Los endpoints de estado son de consulta: no aceptan rutas del cliente ni instalan parches.
+`present` solo comprueba si existe un archivo regular. El recuento de `filled_spanish_count` examina los campos `spanish` no vacíos de JSON legibles con índices consecutivos; devuelve `null` si hay JSON ilegibles, mal formados o una carpeta inaccesible. **No confirma que el texto sea español válido ni compatible con CP932**: `/api/status` no compara los JSON contra el PAK ni verifica hashes. Los endpoints de estado son de consulta: no aceptan rutas del cliente ni instalan parches.
 
 La importación verifica el hash del PAK, CRC global y por entrada, descomprime Cocotte y comprueba los 117 scripts SF03 antes de escribir. Extrae `japanese`, `index`, `rel_offset`, `raw_len` y un campo `spanish` vacío; **no detecta ni añade traducciones**. Rechaza entradas de otra versión y no pisa JSON previos. Si falla una escritura, retira solo los archivos creados por esa petición. `POST /api/import` no acepta rutas del cliente.
 

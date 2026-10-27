@@ -28,6 +28,7 @@ async function refreshStatus() {
     const pak = status.inputs.script_pak_present;
     const exe = status.inputs.exe_present;
     const count = status.workspace.translation_json_count;
+    const filled = status.workspace.filled_spanish_count;
     const exeOutput = status.workspace.diagnostic_exe_present;
     badge("pak-input", pak);
     badge("pak-import", pak);
@@ -40,13 +41,19 @@ async function refreshStatus() {
     badge("pak-patch-output", status.workspace.output_pak_present);
     badge("json-count", count > 0, count === 1 ? "1 JSON" : `${count} JSON`, "0 JSON");
     badge("json-patch-count", count > 0, count === 1 ? "1 JSON" : `${count} JSON`, "0 JSON");
+    badge("filled-count", filled > 0, filled === 1 ? "1 frase" : `${filled} frases`, "0 frases");
+    badge("filled-patch-count", filled > 0, filled === 1 ? "1 frase" : `${filled} frases`, "0 frases");
     if (count === null) {
       $("json-count").textContent = "No disponible";
       $("json-patch-count").textContent = "No disponible";
     }
+    if (filled === null) {
+      $("filled-count").textContent = "JSON sin leer";
+      $("filled-patch-count").textContent = "JSON sin leer";
+    }
     buildButton.disabled = working || !exe || exeOutput;
     importButton.disabled = working || !pak || count !== 0;
-    pakButton.disabled = working || !pak || count !== 117 || status.workspace.output_pak_present;
+    pakButton.disabled = working || !pak || count !== 117 || !(filled > 0) || status.workspace.output_pak_present;
     $("status-error").hidden = true;
   } catch {
     buildButton.disabled = true;

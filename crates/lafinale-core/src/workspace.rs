@@ -174,6 +174,7 @@ pub struct WorkspaceStatus {
     pub has_script_pak: bool,
     pub has_exe: bool,
     pub translation_json_count: Option<usize>,
+    pub filled_spanish_count: Option<usize>,
     pub diagnostic_exe_present: bool,
     pub output_pak_present: bool,
 }
@@ -206,11 +207,14 @@ impl Workspace {
     }
 
     pub fn status(&self) -> WorkspaceStatus {
+        let (translation_json_count, filled_spanish_count) =
+            scan_translations(&self.root.join(TRANSLATIONS));
         WorkspaceStatus {
             directories: DIRECTORIES.map(|relative| is_directory(&self.root.join(relative))),
             has_script_pak: is_regular_file(&self.root.join(ORIGINALS).join("Script.pak")),
             has_exe: is_regular_file(&self.root.join(ORIGINALS).join("SolfegeLF.exe")),
-            translation_json_count: count_json_files(&self.root.join(TRANSLATIONS)),
+            translation_json_count,
+            filled_spanish_count,
             diagnostic_exe_present: is_regular_file(&self.root.join(OUTPUT).join(DIAGNOSTIC_EXE)),
             output_pak_present: is_regular_file(&self.root.join(OUTPUT).join("Script.pak")),
         }
@@ -418,20 +422,60 @@ fn is_regular_file(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
 }
 
-fn count_json_files(path: &Path) -> Option<usize> {
+fn scan_translations(path: &Path) -> (Option<usize>, Option<usize>) {
     if !is_directory(path) {
-        return None;
+        return (None, None);
     }
     let mut count = 0;
-    for entry in fs::read_dir(path).ok()? {
-        let entry = entry.ok()?;
-        if entry.file_type().ok()?.is_file()
-            && entry.path().extension() == Some(std::ffi::OsStr::new("json"))
-        {
-            count += 1;
+    let mut filled = Some(0usize);
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(_) => return (None, None),
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => return (None, None),
+        };
+        if entry.path().extension() != Some(std::ffi::OsStr::new("json")) {
+            continue;
+        }
+        count += 1;
+        // A malformed, oversized or symlinked JSON cannot be counted as a
+        // translation, but must remain visible in the total number of files.
+        let parsed = (|| -> Option<kgo::Script> {
+            let meta = entry.metadata().ok()?;
+            if !entry.file_type().ok()?.is_file() || meta.len() > 8 * 1024 * 1024 {
+                return None;
+            }
+            serde_json::from_slice(&fs::read(entry.path()).ok()?).ok()
+        })();
+        if let Some(document) = parsed {
+            let expected = format!(
+                "{}.json",
+                document.filename.strip_suffix(".kgo").unwrap_or("")
+            );
+            if entry.file_name() != std::ffi::OsStr::new(&expected)
+                || document.strings.len() != document.string_count
+                || document
+                    .strings
+                    .iter()
+                    .enumerate()
+                    .any(|(i, row)| row.index != i)
+            {
+                filled = None;
+            } else if let Some(total) = &mut filled {
+                *total += document
+                    .strings
+                    .iter()
+                    .filter(|row| !row.spanish.trim().is_empty())
+                    .count();
+            }
+        } else {
+            filled = None;
         }
     }
-    Some(count)
+    (Some(count), filled)
 }
 
 #[cfg(test)]
@@ -446,6 +490,7 @@ mod tests {
         assert!(!workspace.status().has_script_pak);
         assert!(!workspace.status().has_exe);
         assert_eq!(workspace.status().translation_json_count, Some(0));
+        assert_eq!(workspace.status().filled_spanish_count, Some(0));
 
         let original = dir.path().join(ORIGINALS).join("Script.pak");
         fs::write(&original, b"untouched").unwrap();
@@ -473,8 +518,45 @@ mod tests {
         fs::write(dir.path().join(TRANSLATIONS).join("b.txt"), b"other").unwrap();
         fs::write(dir.path().join(OUTPUT).join("Script.pak"), b"not pak").unwrap();
         assert_eq!(workspace.status().translation_json_count, Some(1));
+        assert_eq!(workspace.status().filled_spanish_count, None);
         assert!(workspace.status().output_pak_present);
         assert!(!workspace.status().diagnostic_exe_present);
+    }
+
+    #[test]
+    fn distinguishes_filled_fields_from_validated_translations() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::initialize(dir.path()).unwrap();
+        let document = kgo::Script {
+            filename: "scr00001.kgo".into(),
+            script_id: 1,
+            string_count: 2,
+            strings: vec![
+                kgo::TextEntry {
+                    index: 0,
+                    rel_offset: 0,
+                    raw_len: 4,
+                    japanese: "あ".into(),
+                    spanish: "Hola".into(),
+                },
+                kgo::TextEntry {
+                    index: 1,
+                    rel_offset: 4,
+                    raw_len: 4,
+                    japanese: "い".into(),
+                    spanish: "   ".into(),
+                },
+            ],
+        };
+        fs::write(
+            dir.path().join(TRANSLATIONS).join("scr00001.json"),
+            serde_json::to_vec(&document).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(workspace.status().filled_spanish_count, Some(1));
+        fs::write(dir.path().join(TRANSLATIONS).join("bad.json"), b"not json").unwrap();
+        assert_eq!(workspace.status().translation_json_count, Some(2));
+        assert_eq!(workspace.status().filled_spanish_count, None);
     }
 
     #[test]
@@ -525,6 +607,7 @@ mod tests {
             }
         );
         assert_eq!(workspace.status().translation_json_count, Some(117));
+        assert_eq!(workspace.status().filled_spanish_count, Some(0));
         let json = fs::read_to_string(dir.path().join(TRANSLATIONS).join("scr00001.json")).unwrap();
         let document: kgo::Script = serde_json::from_str(&json).unwrap();
         assert_eq!(document.filename, "scr00001.kgo");

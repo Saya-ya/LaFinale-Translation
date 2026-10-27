@@ -40,6 +40,7 @@
         </article>
         <article class="panel"><div class="panel-title"><span class="step-icon">02</span><h3>Traducción y salidas</h3></div>
           <div class="file-row"><div><strong>JSON de trabajo</strong><small>work/translations/</small></div><span class="badge" id="json-count">Comprobando…</span></div>
+          <div class="file-row"><div><strong>Campos rellenados</strong><small>spanish en JSON · sin validar</small></div><span class="badge" id="filled-count">Comprobando…</span></div>
           <div class="file-row"><div><strong>EXE diagnóstico</strong><small>output/</small></div><span class="badge" id="exe-output">Comprobando…</span></div>
           <div class="file-row"><div><strong>PAK de salida</strong><small>output/Script.pak</small></div><span class="badge" id="pak-output">Comprobando…</span></div>
           <p class="subtle">Los JSON y salidas encontrados no se validan desde este resumen.</p>
@@ -77,6 +78,7 @@
           <p>Construye un PAK de prueba con las traducciones de los 117 JSON, verifica las 118 entradas y conserva el bytecode. No instala el archivo en el juego.</p>
           <div class="file-row"><div><strong>Entrada</strong><small>originales/Script.pak</small></div><span class="badge" id="pak-patch-input">Comprobando…</span></div>
           <div class="file-row"><div><strong>JSON encontrados</strong><small>work/translations/</small></div><span class="badge" id="json-patch-count">Comprobando…</span></div>
+          <div class="file-row"><div><strong>Campos rellenados</strong><small>spanish · sin validar</small></div><span class="badge" id="filled-patch-count">Comprobando…</span></div>
           <div class="file-row"><div><strong>Salida</strong><small>output/Script.pak</small></div><span class="badge" id="pak-patch-output">Comprobando…</span></div>
           <button type="button" class="button secondary" id="build-pak" disabled>Generar Script.pak diagnóstico</button>
           <p class="subtle">Necesita los 117 JSON y al menos una frase traducida. El menú no usa saltos automáticos; se rechazan diálogos que necesiten cinco filas. Sin prueba visual completa de paginación.</p>
