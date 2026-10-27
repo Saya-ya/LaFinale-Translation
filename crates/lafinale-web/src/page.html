@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LaFinale Translation — Vista preliminar</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.5 system-ui, sans-serif; }
+    body { background: #161b22; color: #f0f4fa; max-width: 48rem; margin: 3rem auto; padding: 0 1rem; }
+    textarea { display: block; box-sizing: border-box; width: 100%; min-height: 8rem; padding: .7rem; background: #222b38; color: inherit; border: 1px solid #71849c; border-radius: .5rem; }
+    button { margin-top: .8rem; padding: .5rem 1rem; font: inherit; cursor: pointer; }
+    output { display: block; padding: .9rem; margin-top: 1rem; background: #263549; border-radius: .5rem; }
+    a { color: #9ccefc; }
+  </style>
+</head>
+<body>
+  <h1>LaFinale Translation</h1>
+  <p>Vista preliminar de capacidad. Todavía no importa archivos del juego ni guarda traducciones.</p>
+  <form method="post" action="/">
+    <label for="text">Texto traducido</label>
+    <textarea id="text" name="text" maxlength="8192" required>{{TEXT}}</textarea>
+    <button type="submit">Comprobar bytes CP932</button>
+  </form>
+  <output aria-live="polite">{{RESULT}}</output>
+  <p>Se admiten espacios ASCII U+0020; no se admiten espacios japoneses U+3000. El límite de 48 bytes es provisional; el slot ocupa 53 bytes incluido NUL. Ningún resultado garantiza que la frase quepa visualmente en el recuadro.</p>
+  <p><a href="/health">Comprobar servidor</a></p>
+</body>
+</html>
