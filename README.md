@@ -8,6 +8,8 @@ Inspirada en la separación `core`/`web` de [StrawTraduccion](https://github.com
 
 El núcleo Rust lee HyPack v3/Cocotte, valida CRC y descomprime las 118 entradas del PAK original probado. Comprueba los 117 scripts SF03 y genera JSON por índice sin modificar el original.
 
+El núcleo también puede reconstruir un PAK **diagnóstico** desde esos JSON: solo usa traducciones no vacías, conserva bytecode e índices, normaliza caracteres españoles incompatibles con CP932 de manera explícita y limita los renglones de diálogo a 48 bytes. Verifica las 118 entradas por reextracción. Aún no está conectado a la web; el botón PAK seguirá desactivado hasta asegurar lectura/escritura de archivos locales y mostrar las advertencias de normalización.
+
 ## Por qué hay límites específicos
 
 El motor usa archivos **HyPack v3** (`Script.pak`) y scripts **SF03** (`.kgo`) cuyos índices de texto deben mantenerse. Las cadenas se codifican en **CP932**. El EXE original elimina espacios ASCII y el compositor del diálogo usa slots de **53 bytes**, incluido el terminador NUL: **52 bytes útiles**, no 52 caracteres Unicode.

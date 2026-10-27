@@ -66,6 +66,7 @@ pub struct Entry {
     packed_size: usize,
     unpacked_size: usize,
     method: u8,
+    has_checksum: bool,
     checksum: u16,
 }
 
@@ -128,8 +129,8 @@ impl<'a> Archive<'a> {
             if !matches!(method, 0 | 2) {
                 return Err(PakError::Invalid("método de compresión no soportado"));
             }
-            if bytes[at + 37] != 1 {
-                return Err(PakError::Invalid("se esperaba checksum de entrada"));
+            if bytes[at + 37] > 1 {
+                return Err(PakError::Invalid("indicador de checksum"));
             }
             entries.push(Entry {
                 name,
@@ -137,6 +138,7 @@ impl<'a> Archive<'a> {
                 packed_size,
                 unpacked_size,
                 method,
+                has_checksum: bytes[at + 37] == 1,
                 checksum: u16le(bytes, at + 38)?,
             });
         }
@@ -155,7 +157,7 @@ impl<'a> Archive<'a> {
             .get(index)
             .ok_or(PakError::Invalid("índice de entrada"))?;
         let packed = &self.bytes[entry.offset..entry.offset + entry.packed_size];
-        if crc16(packed) != entry.checksum {
+        if entry.has_checksum && crc16(packed) != entry.checksum {
             return Err(PakError::Invalid("CRC16 de entrada"));
         }
         let raw = match entry.method {
@@ -167,6 +169,13 @@ impl<'a> Archive<'a> {
             return Err(PakError::Invalid("tamaño descomprimido"));
         }
         Ok(raw)
+    }
+
+    /// 16 bytes immediately before the entry table, preserved by the proven
+    /// Python repacker (the original's last data block overlaps this region).
+    pub(crate) fn preamble(&self) -> [u8; 16] {
+        let toc = HEADER + u32le(self.bytes, 8).expect("archive already parsed") as usize;
+        self.bytes[toc - 16..toc].try_into().unwrap()
     }
 }
 
