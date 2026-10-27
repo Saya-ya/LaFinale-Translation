@@ -6,6 +6,7 @@ pub mod exe_patch;
 pub mod kgo;
 pub mod pak;
 pub mod pak_build;
+pub mod pak_probe;
 pub mod workspace;
 
 /// One engine slot contains at most 52 CP932 bytes plus its NUL terminator.

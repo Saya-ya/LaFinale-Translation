@@ -171,6 +171,19 @@ impl<'a> Archive<'a> {
         Ok(raw)
     }
 
+    pub(crate) fn plain_entry_offset(&self, index: usize) -> Result<usize> {
+        let entry = self
+            .entries
+            .get(index)
+            .ok_or(PakError::Invalid("índice de entrada"))?;
+        if entry.method != 0 || entry.packed_size != entry.unpacked_size {
+            return Err(PakError::Invalid(
+                "la prueba requiere un PAK sin compresión",
+            ));
+        }
+        Ok(entry.offset)
+    }
+
     /// 16 bytes immediately before the entry table, preserved by the proven
     /// Python repacker (the original's last data block overlaps this region).
     pub(crate) fn preamble(&self) -> [u8; 16] {

@@ -10,7 +10,7 @@ use crate::{
     exe_patch::{self, PatchError},
     kgo,
     pak::{self, Archive},
-    pak_build,
+    pak_build, pak_probe,
 };
 
 pub const ORIGINALS: &str = "originales";
@@ -25,6 +25,8 @@ pub const DIAGNOSTIC_EXE: &str = "SolfegeLF_DIAGNOSTIC.exe";
 pub enum PakBuildError {
     MissingInput,
     OutputExists,
+    ProbeMissing,
+    ProbeExists,
     Invalid(String),
     Io(io::Error),
 }
@@ -37,6 +39,11 @@ impl fmt::Display for PakBuildError {
                 "Coloca Script.pak original y 117 JSON en las carpetas de trabajo"
             ),
             Self::OutputExists => write!(f, "Ya existe output/Script.pak; no se sobrescribe"),
+            Self::ProbeMissing => write!(f, "Falta output/Script.pak, el PAK diagnóstico conocido"),
+            Self::ProbeExists => write!(
+                f,
+                "Ya existe output/prueba_paginacion/Script.pak; no se sobrescribe"
+            ),
             Self::Invalid(message) => write!(f, "No se generó el PAK: {message}"),
             Self::Io(error) => write!(f, "Error de entrada/salida: {error}"),
         }
@@ -53,6 +60,8 @@ pub struct PakBuildSummary {
     pub sha256: String,
     pub report: pak_build::BuildReport,
 }
+
+pub const PAGE_PROBE_OUTPUT: &str = "output/prueba_paginacion/Script.pak";
 
 #[derive(Debug)]
 pub enum ImportError {
@@ -375,6 +384,57 @@ impl Workspace {
         Ok(PakBuildSummary { sha256, report })
     }
 
+    /// A separate, one-off page-break experiment from the *existing* known
+    /// diagnostic PAK. Original inputs, JSON and the ordinary output are read-only.
+    pub fn build_page_probe(&self) -> Result<String, PakBuildError> {
+        let source = self.root.join(OUTPUT).join("Script.pak");
+        let metadata = match fs::symlink_metadata(&source) {
+            Ok(meta) => meta,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(PakBuildError::ProbeMissing)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 {
+            return Err(PakBuildError::Invalid(
+                "el PAK de salida debe ser un archivo regular de hasta 32 MiB".into(),
+            ));
+        }
+        let output = pak_probe::build_page_probe(&fs::read(source)?)
+            .map_err(|error| PakBuildError::Invalid(error.to_string()))?;
+        let hash = exe_patch::sha256(&output);
+        let folder = self.root.join(OUTPUT).join("prueba_paginacion");
+        match fs::symlink_metadata(&folder) {
+            Ok(meta) if !meta.is_dir() || meta.file_type().is_symlink() => {
+                return Err(PakBuildError::Invalid(
+                    "prueba_paginacion no es una carpeta local segura".into(),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => fs::create_dir(&folder)?,
+            Err(error) => return Err(error.into()),
+        }
+        let path = folder.join("Script.pak");
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                return Err(PakBuildError::ProbeExists)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let result = file.write_all(&output).and_then(|_| file.sync_all());
+        drop(file);
+        if let Err(error) = result {
+            let _ = fs::remove_file(path);
+            return Err(error.into());
+        }
+        Ok(hash)
+    }
+
     /// Reads the fixed local input and writes one new diagnostic output. No
     /// arbitrary path from HTTP is accepted; create_new prevents overwrites.
     pub fn build_exe_diagnostic(&self) -> Result<&'static str, BuildError> {
@@ -692,6 +752,30 @@ mod tests {
             Err(PakBuildError::Invalid(_))
         ));
         assert!(!dir.path().join(OUTPUT).join("Script.pak").exists());
+    }
+
+    #[test]
+    fn page_probe_is_separate_and_refuses_overwrite() {
+        let Ok(source) = std::env::var("LAFINALE_TEST_DIAGNOSTIC_PAK") else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::initialize(dir.path()).unwrap();
+        let baseline = dir.path().join(OUTPUT).join("Script.pak");
+        fs::copy(source, &baseline).unwrap();
+        let hash = workspace.build_page_probe().unwrap();
+        assert_eq!(
+            hash,
+            exe_patch::sha256(&fs::read(dir.path().join(PAGE_PROBE_OUTPUT)).unwrap())
+        );
+        assert_eq!(
+            exe_patch::sha256(&fs::read(baseline).unwrap()),
+            pak_probe::BASE_SHA256
+        );
+        assert!(matches!(
+            workspace.build_page_probe(),
+            Err(PakBuildError::ProbeExists)
+        ));
     }
 
     #[cfg(unix)]

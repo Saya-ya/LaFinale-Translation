@@ -7,7 +7,9 @@ use axum::{
 };
 use lafinale_core::{
     exe_patch::{self, PatchError},
-    workspace::{BuildError, ImportError, PakBuildError, Workspace, DIRECTORIES},
+    workspace::{
+        BuildError, ImportError, PakBuildError, Workspace, DIRECTORIES, PAGE_PROBE_OUTPUT,
+    },
 };
 use serde::Serialize;
 use std::{net::SocketAddr, path::PathBuf};
@@ -75,6 +77,17 @@ struct PakResult {
     diagnostic_only: bool,
 }
 
+#[derive(Serialize)]
+struct PageProbeResult {
+    output: &'static str,
+    sha256: String,
+    script: &'static str,
+    string_index: usize,
+    before: &'static str,
+    after: &'static str,
+    diagnostic_only: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // From the repository root by default; a launcher can set LAFINALE_HOME.
@@ -95,6 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/exe/build", axum::routing::post(build_exe))
         .route("/api/import", axum::routing::post(import_pak))
         .route("/api/pak/build", axum::routing::post(build_pak))
+        .route("/api/pak/page-probe", axum::routing::post(page_probe))
         .with_state(workspace);
     let address: SocketAddr = "127.0.0.1:8080".parse()?;
     let listener = tokio::net::TcpListener::bind(address).await?;
@@ -179,8 +193,38 @@ async fn build_pak(
         })),
         Err(error) => {
             let code = match &error {
-                PakBuildError::MissingInput => StatusCode::NOT_FOUND,
-                PakBuildError::OutputExists => StatusCode::CONFLICT,
+                PakBuildError::MissingInput | PakBuildError::ProbeMissing => StatusCode::NOT_FOUND,
+                PakBuildError::OutputExists | PakBuildError::ProbeExists => StatusCode::CONFLICT,
+                PakBuildError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
+                PakBuildError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            Err(api_error(code, error.to_string()))
+        }
+    }
+}
+
+async fn page_probe(
+    State(workspace): State<Workspace>,
+    headers: HeaderMap,
+) -> Result<Json<PageProbeResult>, (StatusCode, Json<ApiError>)> {
+    local_write_only(&headers)?;
+    let result = tokio::task::spawn_blocking(move || workspace.build_page_probe())
+        .await
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    match result {
+        Ok(sha256) => Ok(Json(PageProbeResult {
+            output: PAGE_PROBE_OUTPUT,
+            sha256,
+            script: "scr00001.kgo",
+            string_index: 0,
+            before: lafinale_core::pak_probe::FIRST_BEFORE,
+            after: lafinale_core::pak_probe::FIRST_AFTER,
+            diagnostic_only: true,
+        })),
+        Err(error) => {
+            let code = match &error {
+                PakBuildError::MissingInput | PakBuildError::ProbeMissing => StatusCode::NOT_FOUND,
+                PakBuildError::OutputExists | PakBuildError::ProbeExists => StatusCode::CONFLICT,
                 PakBuildError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
                 PakBuildError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
             };

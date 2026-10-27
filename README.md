@@ -47,6 +47,7 @@ Las tres áreas de datos están ignoradas por Git. Si una de estas rutas ya es u
 | `POST /api/exe/build` | Aplica **solo** al EXE NoDVD de SHA-256 `a7e4999ff54e56499130a45427ab0273bc6b9d475e03c93f493cb6b592a13a79`; crea `output/SolfegeLF_DIAGNOSTIC.exe` sin sobrescribir. |
 | `POST /api/import` | Solo PAK original con SHA-256 `b5666dc0155b7534b9455100b39b6e8c40e28051f47aa208517a2b645e1bb40e`; extrae los 117 JSON a `work/translations/` **vacía**, sin sobrescribir. |
 | `POST /api/pak/build` | Requiere el mismo PAK original y los 117 JSON (al menos una traducción). Crea `output/Script.pak` **solo si no existe**; devuelve hash, número de frases y normalizaciones. |
+| `POST /api/pak/page-probe` | **Experimento aislado:** exige el `output/Script.pak` diagnóstico de hash conocido y crea `output/prueba_paginacion/Script.pak` con un único `\n` sustituido por `\p` en `scr00001.kgo`, cadena 0. Nunca sobrescribe. |
 
 Ejemplo de respuesta de `/api/status` en una instalación nueva:
 
@@ -76,6 +77,8 @@ curl -X POST http://127.0.0.1:8080/api/exe/build
 ```
 
 **Advertencia:** el motor seguirá truncando líneas superiores a 52 bytes; el parche no mide píxeles, no pagina automáticamente y no soluciona la UI del menú. El español se agrega mediante el futuro `Script.pak` traducido, **no incrustando frases en el EXE**. La salida no sustituye `SolfegeLF.exe` de la instalación ni debe presentarse como parche final. La API es local: la operación de escritura exige `Host: 127.0.0.1:8080` y rechaza solicitudes web de otro origen.
+
+Para comprobar manualmente el cambio de página `\p` sin modificar JSON ni la salida normal, consulta [docs/PRUEBA_PAGINACION.md](docs/PRUEBA_PAGINACION.md). Esta prueba **no habilita** el paginado automático en el constructor ordinario.
 
 Para desarrollo:
 
