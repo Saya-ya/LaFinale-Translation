@@ -10,6 +10,7 @@ use crate::{
     exe_patch::{self, PatchError},
     kgo,
     pak::{self, Archive},
+    pak_build,
 };
 
 pub const ORIGINALS: &str = "originales";
@@ -19,6 +20,39 @@ pub const OUTPUT: &str = "output";
 
 pub const DIRECTORIES: [&str; 4] = [ORIGINALS, WORK, TRANSLATIONS, OUTPUT];
 pub const DIAGNOSTIC_EXE: &str = "SolfegeLF_DIAGNOSTIC.exe";
+
+#[derive(Debug)]
+pub enum PakBuildError {
+    MissingInput,
+    OutputExists,
+    Invalid(String),
+    Io(io::Error),
+}
+
+impl fmt::Display for PakBuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingInput => write!(
+                f,
+                "Coloca Script.pak original y 117 JSON en las carpetas de trabajo"
+            ),
+            Self::OutputExists => write!(f, "Ya existe output/Script.pak; no se sobrescribe"),
+            Self::Invalid(message) => write!(f, "No se generó el PAK: {message}"),
+            Self::Io(error) => write!(f, "Error de entrada/salida: {error}"),
+        }
+    }
+}
+impl From<io::Error> for PakBuildError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+#[derive(Debug)]
+pub struct PakBuildSummary {
+    pub sha256: String,
+    pub report: pak_build::BuildReport,
+}
 
 #[derive(Debug)]
 pub enum ImportError {
@@ -259,6 +293,84 @@ impl Workspace {
         })
     }
 
+    /// Build to a fixed new local file after validating all scripts in memory.
+    /// Existing outputs and original game data are never overwritten.
+    pub fn build_pak_diagnostic(&self) -> Result<PakBuildSummary, PakBuildError> {
+        let source = self.root.join(ORIGINALS).join("Script.pak");
+        let metadata = match fs::symlink_metadata(&source) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(PakBuildError::MissingInput)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 {
+            return Err(PakBuildError::Invalid(
+                "PAK de entrada inseguro o demasiado grande".into(),
+            ));
+        }
+        let output_path = self.root.join(OUTPUT).join("Script.pak");
+        if fs::symlink_metadata(&output_path).is_ok() {
+            return Err(PakBuildError::OutputExists);
+        }
+        let json_dir = self.root.join(TRANSLATIONS);
+        let mut docs = std::collections::HashMap::new();
+        for entry in fs::read_dir(json_dir)? {
+            let entry = entry?;
+            if entry.path().extension() != Some(std::ffi::OsStr::new("json")) {
+                continue;
+            }
+            if !entry.file_type()?.is_file() {
+                return Err(PakBuildError::Invalid(
+                    "JSON no es un archivo regular".into(),
+                ));
+            }
+            if entry.metadata()?.len() > 8 * 1024 * 1024 {
+                return Err(PakBuildError::Invalid("JSON demasiado grande".into()));
+            }
+            let document: kgo::Script = serde_json::from_slice(&fs::read(entry.path())?)
+                .map_err(|error| PakBuildError::Invalid(format!("JSON inválido: {error}")))?;
+            let expected = format!(
+                "{}.json",
+                document
+                    .filename
+                    .strip_suffix(".kgo")
+                    .ok_or_else(|| PakBuildError::Invalid("filename no termina en .kgo".into()))?
+            );
+            if entry.file_name() != std::ffi::OsStr::new(&expected)
+                || docs.insert(document.filename.clone(), document).is_some()
+            {
+                return Err(PakBuildError::Invalid(
+                    "nombre/filename JSON no coincidente o duplicado".into(),
+                ));
+            }
+        }
+        if docs.len() != 117 {
+            return Err(PakBuildError::MissingInput);
+        }
+        let (bytes, report) = pak_build::build(&fs::read(source)?, &docs)
+            .map_err(|error| PakBuildError::Invalid(error.to_string()))?;
+        let sha256 = exe_patch::sha256(&bytes);
+        let mut output = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output_path)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                return Err(PakBuildError::OutputExists)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let result = output.write_all(&bytes).and_then(|_| output.sync_all());
+        drop(output);
+        if let Err(error) = result {
+            let _ = fs::remove_file(output_path);
+            return Err(PakBuildError::Io(error));
+        }
+        Ok(PakBuildSummary { sha256, report })
+    }
+
     /// Reads the fixed local input and writes one new diagnostic output. No
     /// arbitrary path from HTTP is accepted; create_new prevents overwrites.
     pub fn build_exe_diagnostic(&self) -> Result<&'static str, BuildError> {
@@ -429,6 +541,74 @@ mod tests {
             exe_patch::sha256(&fs::read(original).unwrap()),
             pak::ORIGINAL_SHA256
         );
+    }
+
+    #[test]
+    fn pak_builder_does_not_overwrite_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::initialize(dir.path()).unwrap();
+        fs::write(dir.path().join(ORIGINALS).join("Script.pak"), b"bad").unwrap();
+        let output = dir.path().join(OUTPUT).join("Script.pak");
+        fs::write(&output, b"my output").unwrap();
+        assert!(matches!(
+            workspace.build_pak_diagnostic(),
+            Err(PakBuildError::OutputExists)
+        ));
+        assert_eq!(fs::read(output).unwrap(), b"my output");
+    }
+
+    #[test]
+    fn pak_builder_round_trip_when_sources_supplied_locally() {
+        let (Ok(pak), Ok(json_dir)) = (
+            std::env::var("LAFINALE_TEST_PAK"),
+            std::env::var("LAFINALE_TEST_TRANSLATIONS"),
+        ) else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::initialize(dir.path()).unwrap();
+        fs::copy(pak, dir.path().join(ORIGINALS).join("Script.pak")).unwrap();
+        for file in fs::read_dir(json_dir).unwrap() {
+            let file = file.unwrap();
+            if file.path().extension() == Some(std::ffi::OsStr::new("json")) {
+                fs::copy(
+                    file.path(),
+                    dir.path().join(TRANSLATIONS).join(file.file_name()),
+                )
+                .unwrap();
+            }
+        }
+        let summary = workspace.build_pak_diagnostic().unwrap();
+        assert_eq!(summary.report.translated_strings, 9673);
+        assert_eq!(summary.report.wrapped_strings, 3577);
+        assert_eq!(
+            exe_patch::sha256(&fs::read(dir.path().join(OUTPUT).join("Script.pak")).unwrap()),
+            summary.sha256
+        );
+        assert!(matches!(
+            workspace.build_pak_diagnostic(),
+            Err(PakBuildError::OutputExists)
+        ));
+    }
+
+    #[test]
+    fn pak_builder_rejects_unsafe_translation_without_output() {
+        let Ok(pak) = std::env::var("LAFINALE_TEST_PAK") else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = Workspace::initialize(dir.path()).unwrap();
+        fs::copy(pak, dir.path().join(ORIGINALS).join("Script.pak")).unwrap();
+        workspace.import_translations().unwrap();
+        let path = dir.path().join(TRANSLATIONS).join("scr00001.json");
+        let mut document: kgo::Script = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        document.strings[0].spanish = "espacio　inseguro".into();
+        fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        assert!(matches!(
+            workspace.build_pak_diagnostic(),
+            Err(PakBuildError::Invalid(_))
+        ));
+        assert!(!dir.path().join(OUTPUT).join("Script.pak").exists());
     }
 
     #[cfg(unix)]

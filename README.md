@@ -4,11 +4,11 @@ Aplicación web **local** en Rust para preparar la traducción de *Solfège ~La 
 
 Inspirada en la separación `core`/`web` de [StrawTraduccion](https://github.com/Saya-ya/StrawTraduccion), pero con formatos y límites propios de este juego. Proyecto fan, gratuito y no oficial.
 
-> **Estado: prototipo diagnóstico, NO es un parche instalable.** La web muestra el estado local, importa a JSON los diálogos del PAK original probado y genera un EXE de prueba independiente. El parche PAK aún no funciona y su botón está desactivado. Los experimentos anteriores se mantienen fuera de este repositorio.
+> **Estado: prototipo diagnóstico, NO es un parche instalable.** La web muestra el estado local, importa a JSON los diálogos del PAK original probado y genera **PAK y EXE de prueba independientes**. No instala archivos en el juego. Los experimentos anteriores se mantienen fuera de este repositorio.
 
 El núcleo Rust lee HyPack v3/Cocotte, valida CRC y descomprime las 118 entradas del PAK original probado. Comprueba los 117 scripts SF03 y genera JSON por índice sin modificar el original.
 
-El núcleo también puede reconstruir un PAK **diagnóstico** desde esos JSON: solo usa traducciones no vacías, conserva bytecode e índices, normaliza caracteres españoles incompatibles con CP932 de manera explícita y limita los renglones de diálogo a 48 bytes. Verifica las 118 entradas por reextracción. Aún no está conectado a la web; el botón PAK seguirá desactivado hasta asegurar lectura/escritura de archivos locales y mostrar las advertencias de normalización.
+El núcleo puede reconstruir un PAK **diagnóstico** desde esos JSON: solo usa traducciones no vacías, conserva bytecode e índices, normaliza caracteres españoles incompatibles con CP932 de manera explícita y limita los renglones de diálogo a 48 bytes. Verifica las 118 entradas por reextracción. Si una traducción requiere cinco filas o contiene un control manual `\p`/`\n`, **rechaza toda la construcción** hasta verificar paginación en el juego.
 
 ## Por qué hay límites específicos
 
@@ -24,7 +24,7 @@ Requiere Rust estable y Cargo. Desde la raíz de este repositorio:
 cargo run -p lafinale-web
 ```
 
-Abre <http://127.0.0.1:8080>. El servidor escucha únicamente en `127.0.0.1`. La barra superior permite navegar entre **Inicio** (archivos, salidas, JSON presentes e idiomas japonés → español), **Importar** (extrae 117 JSON originales) y **Parchear** (EXE diagnóstico funcional y PAK pendiente). La interfaz no depende de fuentes, scripts ni servicios externos. No se sube texto a servicios externos.
+Abre <http://127.0.0.1:8080>. El servidor escucha únicamente en `127.0.0.1`. La barra superior permite navegar entre **Inicio** (archivos, salidas, JSON presentes e idiomas japonés → español), **Importar** (extrae 117 JSON originales) y **Parchear** (genera PAK y EXE diagnósticos por separado). La interfaz no depende de fuentes, scripts ni servicios externos. No se sube texto a servicios externos.
 
 ### Primera ejecución y API
 
@@ -34,7 +34,7 @@ Inicia el servidor **desde la raíz del repositorio**. Antes de escuchar peticio
 originales/          # aquí pondrá el usuario Script.pak y SolfegeLF.exe
 work/                # datos de trabajo futuros; aún no se escriben
 work/translations/   # JSON extraídos localmente; no se suben a Git
-output/              # EXE diagnóstico actual; PAK futuro
+output/              # PAK y EXE diagnósticos, separados de los originales
 ```
 
 Las tres áreas de datos están ignoradas por Git. Si una de estas rutas ya es un archivo o un enlace en lugar de una carpeta, la aplicación **se detiene con error** en vez de reemplazarla. Los originales existentes nunca se sobrescriben. Si vas a lanzar el binario desde otra carpeta, define `LAFINALE_HOME` apuntando a la raíz del proyecto.
@@ -46,6 +46,7 @@ Las tres áreas de datos están ignoradas por Git. Si una de estas rutas ya es u
 | `GET /api/status` | Estado de carpetas, entradas, recuento de `.json` regulares en `work/translations/` y presencia de las salidas. |
 | `POST /api/exe/build` | Aplica **solo** al EXE NoDVD de SHA-256 `a7e4999ff54e56499130a45427ab0273bc6b9d475e03c93f493cb6b592a13a79`; crea `output/SolfegeLF_DIAGNOSTIC.exe` sin sobrescribir. |
 | `POST /api/import` | Solo PAK original con SHA-256 `b5666dc0155b7534b9455100b39b6e8c40e28051f47aa208517a2b645e1bb40e`; extrae los 117 JSON a `work/translations/` **vacía**, sin sobrescribir. |
+| `POST /api/pak/build` | Requiere el mismo PAK original y los 117 JSON (al menos una traducción). Crea `output/Script.pak` **solo si no existe**; devuelve hash, número de frases y normalizaciones. |
 
 Ejemplo de respuesta de `/api/status` en una instalación nueva:
 
@@ -65,6 +66,8 @@ Ejemplo de respuesta de `/api/status` en una instalación nueva:
 `present` solo comprueba si existe un archivo regular; el recuento JSON **no interpreta su contenido** (es `null` si no puede examinarse la carpeta). **No implica que haya una traducción válida**: `/api/status` todavía no verifica hashes ni formatos; la verificación del PAK queda pendiente. Los endpoints de estado son de consulta: no aceptan rutas del cliente ni instalan parches.
 
 La importación verifica el hash del PAK, CRC global y por entrada, descomprime Cocotte y comprueba los 117 scripts SF03 antes de escribir. Extrae `japanese`, `index`, `rel_offset`, `raw_len` y un campo `spanish` vacío; **no detecta ni añade traducciones**. Rechaza entradas de otra versión y no pisa JSON previos. Si falla una escritura, retira solo los archivos creados por esa petición. `POST /api/import` no acepta rutas del cliente.
+
+Al rellenar campos `spanish` en tus JSON locales, `POST /api/pak/build` genera el PAK por separado. Copia intactas las entradas sin traducción y rechaza cualquier cambio al índice, texto japonés o identificador original. Divide diálogos a **48 bytes CP932 por renglón** con marcadores literales `\n`; conserva espacios ASCII salvo el espacio que sustituye cada salto. No aplica este formato al menú (`scr00000.kgo`), que usa otra interfaz. Normaliza explícitamente vocales acentuadas y macrones (`á→a`, `ō→o`, `ū→u`…), `ñ→n`, `«»→"`, y retira `¿¡`; el recuento de caracteres afectados se muestra en la respuesta. **No reemplaza caracteres desconocidos por `?` en silencio**. Por estas correcciones la salida puede tener un hash distinto del PAK de prueba Python anterior. Ninguna validación binaria reemplaza la prueba visual de menú, páginas, historial y partida completa.
 
 El endpoint de construcción es la excepción: verifica el **hash completo del EXE NoDVD**, estructura PE32 y firmas de bytes, aplica SBCS/DBCS, conserva los espacios ASCII y amplía el límite **diagnóstico** de 26 a 52 bytes CP932 por slot. Comprueba los hashes de cada fase contra los prototipos. Rechaza una versión distinta con HTTP 422, una entrada ausente con 404 y una salida existente con 409. No acepta rutas proporcionadas por el cliente. Ejemplo, después de depositar el EXE propio:
 

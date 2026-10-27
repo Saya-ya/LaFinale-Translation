@@ -10,6 +10,7 @@ document.title = `${{ "/": "Inicio", "/importar": "Importar", "/parchear": "Parc
 const $ = (id) => document.getElementById(id);
 const buildButton = $("build-exe");
 const importButton = $("import-start");
+const pakButton = $("build-pak");
 let working = false;
 
 function badge(id, found, yes = "Encontrado", no = "No encontrado") {
@@ -36,6 +37,7 @@ async function refreshStatus() {
     badge("exe-output", exeOutput);
     badge("exe-patch-output", exeOutput);
     badge("pak-output", status.workspace.output_pak_present);
+    badge("pak-patch-output", status.workspace.output_pak_present);
     badge("json-count", count > 0, count === 1 ? "1 JSON" : `${count} JSON`, "0 JSON");
     badge("json-patch-count", count > 0, count === 1 ? "1 JSON" : `${count} JSON`, "0 JSON");
     if (count === null) {
@@ -44,10 +46,12 @@ async function refreshStatus() {
     }
     buildButton.disabled = working || !exe || exeOutput;
     importButton.disabled = working || !pak || count !== 0;
+    pakButton.disabled = working || !pak || count !== 117 || status.workspace.output_pak_present;
     $("status-error").hidden = true;
   } catch {
     buildButton.disabled = true;
     importButton.disabled = true;
+    pakButton.disabled = true;
     $("status-error").hidden = false;
   }
 }
@@ -91,6 +95,28 @@ importButton.addEventListener("click", async () => {
   } catch (error) {
     message.classList.add("error");
     message.textContent = error.message || "No se pudo importar el PAK.";
+  } finally {
+    working = false;
+    await refreshStatus();
+  }
+});
+
+pakButton.addEventListener("click", async () => {
+  if (working || !window.confirm("Se creará output/Script.pak como prueba, a partir de 117 JSON. No se instalará en el juego. ¿Continuar?")) return;
+  working = true;
+  pakButton.disabled = true;
+  const message = $("pak-message");
+  message.hidden = false;
+  message.classList.remove("error");
+  message.textContent = "Verificando JSON, reconstruyendo y reextrayendo el PAK…";
+  try {
+    const response = await fetch("/api/pak/build", { method: "POST", headers: { "Accept": "application/json" } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `Error HTTP ${response.status}`);
+    message.textContent = `Creado ${result.output}: ${result.translated_strings.toLocaleString("es-ES")} frases, ${result.wrapped_strings.toLocaleString("es-ES")} con saltos y ${result.normalized_characters.toLocaleString("es-ES")} caracteres normalizados. Es diagnóstico; revisa el texto antes de instalarlo.`;
+  } catch (error) {
+    message.classList.add("error");
+    message.textContent = error.message || "No se pudo generar el PAK.";
   } finally {
     working = false;
     await refreshStatus();

@@ -7,7 +7,7 @@ use axum::{
 };
 use lafinale_core::{
     exe_patch::{self, PatchError},
-    workspace::{BuildError, ImportError, Workspace, DIRECTORIES},
+    workspace::{BuildError, ImportError, PakBuildError, Workspace, DIRECTORIES},
 };
 use serde::Serialize;
 use std::{net::SocketAddr, path::PathBuf};
@@ -63,6 +63,17 @@ struct ImportResult {
     destination: &'static str,
 }
 
+#[derive(Serialize)]
+struct PakResult {
+    output: &'static str,
+    sha256: String,
+    translated_strings: usize,
+    wrapped_strings: usize,
+    normalized_characters: usize,
+    maximum_rows: usize,
+    diagnostic_only: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // From the repository root by default; a launcher can set LAFINALE_HOME.
@@ -82,6 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/status", get(api_status))
         .route("/api/exe/build", axum::routing::post(build_exe))
         .route("/api/import", axum::routing::post(import_pak))
+        .route("/api/pak/build", axum::routing::post(build_pak))
         .with_state(workspace);
     let address: SocketAddr = "127.0.0.1:8080".parse()?;
     let listener = tokio::net::TcpListener::bind(address).await?;
@@ -140,6 +152,36 @@ async fn import_pak(
                 ImportError::Occupied => StatusCode::CONFLICT,
                 ImportError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
                 ImportError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            Err(api_error(code, error.to_string()))
+        }
+    }
+}
+
+async fn build_pak(
+    State(workspace): State<Workspace>,
+    headers: HeaderMap,
+) -> Result<Json<PakResult>, (StatusCode, Json<ApiError>)> {
+    local_write_only(&headers)?;
+    let result = tokio::task::spawn_blocking(move || workspace.build_pak_diagnostic())
+        .await
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    match result {
+        Ok(summary) => Ok(Json(PakResult {
+            output: "output/Script.pak",
+            sha256: summary.sha256,
+            translated_strings: summary.report.translated_strings,
+            wrapped_strings: summary.report.wrapped_strings,
+            normalized_characters: summary.report.normalized_characters,
+            maximum_rows: summary.report.maximum_rows,
+            diagnostic_only: true,
+        })),
+        Err(error) => {
+            let code = match &error {
+                PakBuildError::MissingInput => StatusCode::NOT_FOUND,
+                PakBuildError::OutputExists => StatusCode::CONFLICT,
+                PakBuildError::Invalid(_) => StatusCode::UNPROCESSABLE_ENTITY,
+                PakBuildError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
             };
             Err(api_error(code, error.to_string()))
         }
@@ -214,5 +256,6 @@ mod tests {
         assert!(PAGE.contains("href=\"/parchear\""));
         assert!(PAGE.contains("/assets/app.js"));
         assert!(JS.contains("/api/exe/build"));
+        assert!(JS.contains("/api/pak/build"));
     }
 }

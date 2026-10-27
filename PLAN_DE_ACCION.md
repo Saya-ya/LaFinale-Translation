@@ -1,8 +1,7 @@
 # Plan de acción: parcheador de Script.pak y SolfegeLF.exe
 
-**Estado:** importación a JSON y generador **diagnóstico** del EXE en Rust/web;
-constructor de PAK diagnóstico en el núcleo Rust, todavía sin API. Ningún PAK
-de producción ni editor/instalador implementado.
+**Estado:** importación a JSON y generadores **diagnósticos** de PAK y EXE
+disponibles en Rust/web. Ningún parche final, editor ni instalador implementado.
 **Objetivo:** convertir los JSON de traducción ya existentes en un `Script.pak`
 con texto español y saltos correctos, producir un `SolfegeLF.exe` compatible
 sin distribuir archivos originales del juego, y ofrecer una instalación
@@ -34,11 +33,10 @@ reversible. Los espacios deben ser **U+0020**, nunca U+3000.
 **Aplicación web Rust**, siguiendo el patrón `core`/`web` de StrawTraduccion:
 `lafinale-core` concentra reglas CP932, lector HyPack/Cocotte y SF03 y el port
 del parche PE de prueba; reempaquetado sin compresión y saltos `\n` de prueba
-ya están en el núcleo, pero falta integrar la API. `lafinale-web` expone una interfaz local Axum en
+están integrados en la API. `lafinale-web` expone una interfaz local Axum en
 `127.0.0.1`, nunca abierta por defecto a otras máquinas. El formulario
-actual muestra tres vistas, extrae JSON a `work/translations/` y permite crear
-un EXE diagnóstico en `output/`, pero no genera PAK ni parchea la instalación.
-El botón PAK permanece desactivado mientras se porta el formato de escritura.
+actual muestra tres vistas, extrae JSON a `work/translations/` y crea PAK/EXE
+diagnósticos en `output/` por separado, pero no parchea la instalación.
 
 Los prototipos Python anteriores son referencia para portar el algoritmo
 correcto, **no** una dependencia de la aplicación final. Cada módulo Rust
